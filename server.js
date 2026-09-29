@@ -1,99 +1,235 @@
+const express = require("express");
 const session = require("express-session");
 const bcrypt = require("bcryptjs");
-const express = require("express");
-const Database = require("better-sqlite3");
+const { Pool } = require("pg");
 
 const app = express();
+const PORT = process.env.PORT || 3000;
+
+if (!process.env.DATABASE_URL) {
+  console.error("DATABASE_URL is missing.");
+  process.exit(1);
+}
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false
+  }
+});
+
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+
 app.use(
   session({
-    secret: "change-this-secret-later",
+    secret: process.env.SESSION_SECRET || "crm-secret-change-this",
     resave: false,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      sameSite: "lax"
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production"
     }
   })
 );
 
+// -------------------------
+// Database setup
+// -------------------------
 
-const db = new Database("crm.db");
+async function setupDatabase() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS customers (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      phone TEXT DEFAULT '',
+      email TEXT DEFAULT '',
+      address TEXT DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 
-db.exec(`
-CREATE TABLE IF NOT EXISTS customers (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL,
-  phone TEXT,
-  email TEXT,
-  address TEXT
-)
-`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      password TEXT NOT NULL
+    )
+  `);
 
-db.exec(`
-CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  username TEXT UNIQUE NOT NULL,
-  password TEXT NOT NULL
-)
-`);
+  const existingAdmin = await pool.query(
+    "SELECT id FROM users WHERE username = $1",
+    ["admin"]
+  );
 
-const adminPassword = bcrypt.hashSync("Admin@123", 10);
+  if (existingAdmin.rows.length === 0) {
+    const passwordHash = await bcrypt.hash("Admin@123", 10);
 
-const existingAdmin = db
-  .prepare("SELECT * FROM users WHERE username = ?")
-  .get("admin");
+    await pool.query(
+      "INSERT INTO users (username, password) VALUES ($1, $2)",
+      ["admin", passwordHash]
+    );
 
-if (!existingAdmin) {
-  db.prepare(
-    "INSERT INTO users (username, password) VALUES (?, ?)"
-  ).run("admin", adminPassword);
+    console.log("Admin user created.");
+  }
+
+  console.log("PostgreSQL database ready.");
+}
+
+// -------------------------
+// Login protection
+// -------------------------
+
+function requireLogin(req, res, next) {
+  if (!req.session.userId) {
+    return res.status(401).json({
+      error: "Please login first"
+    });
+  }
+
+  next();
+}
+
+// -------------------------
+// Login page
+// -------------------------
+
 app.get("/login", (req, res) => {
   res.send(`
-    <h2>CRM Login</h2>
+<!DOCTYPE html>
+<html>
+<head>
+  <title>CRM Login</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f2f4f7;
+      margin: 0;
+      padding: 20px;
+    }
 
-    <form method="POST" action="/login">
-      <input name="username" placeholder="Username" required>
-      <br><br>
-      <input name="password" type="password" placeholder="Password" required>
-      <br><br>
-      <button type="submit">Login</button>
-    </form>
+    .login-box {
+      max-width: 400px;
+      margin: 80px auto;
+      background: white;
+      padding: 25px;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px #ddd;
+    }
+
+    input {
+      width: 100%;
+      padding: 12px;
+      margin: 8px 0;
+      box-sizing: border-box;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 6px;
+      background: #2563eb;
+      color: white;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="login-box">
+  <h2>🔐 CRM Login</h2>
+
+  <form method="POST" action="/login">
+    <input
+      name="username"
+      placeholder="Username"
+      required
+    >
+
+    <input
+      name="password"
+      type="password"
+      placeholder="Password"
+      required
+    >
+
+    <button type="submit">Login</button>
+  </form>
+</div>
+
+</body>
+</html>
   `);
 });
 
-app.use(express.urlencoded({ extended: false }));
+// -------------------------
+// Login
+// -------------------------
 
 app.post("/login", async (req, res) => {
-  const { username, password } = req.body;
+  try {
+    const { username, password } = req.body;
 
-  const user = db
-    .prepare("SELECT * FROM users WHERE username = ?")
-    .get(username);
+    const result = await pool.query(
+      "SELECT * FROM users WHERE username = $1",
+      [username]
+    );
 
-  if (!user) {
-    return res.status(401).send("Invalid username or password");
+    const user = result.rows[0];
+
+    if (!user) {
+      return res.status(401).send("Invalid username or password");
+    }
+
+    const valid = await bcrypt.compare(password, user.password);
+
+    if (!valid) {
+      return res.status(401).send("Invalid username or password");
+    }
+
+    req.session.userId = user.id;
+
+    res.redirect("/");
+  } catch (error) {
+    console.error(error);
+    res.status(500).send("Login error");
   }
+});
 
-  const valid = await bcrypt.compare(password, user.password);
+// -------------------------
+// Logout
+// -------------------------
 
-  if (!valid) {
-    return res.status(401).send("Invalid username or password");
-  }
+app.post("/logout", (req, res) => {
+  req.session.destroy(() => {
+    res.redirect("/login");
+  });
+});
 
-  req.session.userId = user.id;
+// -------------------------
+// Dashboard
+// -------------------------
 
-  res.redirect("/");
-});}app.get("/", (req, res) => {if 
-(!req.session.userId) {
+app.get("/", (req, res) => {
+  if (!req.session.userId) {
     return res.redirect("/login");
   }
+
   res.send(`
 <!DOCTYPE html>
 <html>
 <head>
   <title>My CRM</title>
+
   <meta name="viewport" content="width=device-width, initial-scale=1">
+
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -146,6 +282,11 @@ app.post("/login", async (req, res) => {
       margin-left: 8px;
     }
 
+    .logout {
+      background: #6b7280;
+      float: right;
+    }
+
     .customer {
       border: 1px solid #ddd;
       padding: 15px;
@@ -163,21 +304,24 @@ app.post("/login", async (req, res) => {
 
 <div class="container">
 
-  <h1>📊 My CRM Dashboard</h1>
+  <h1>
+    📊 My CRM Dashboard
+    <button class="logout" onclick="logout()">Logout</button>
+  </h1>
 
   <div class="box">
-    <h2>Add Customer</h2>
+    <h2>➕ Add Customer / Lead</h2>
 
     <input id="name" placeholder="Customer Name">
     <input id="phone" placeholder="Phone Number">
     <input id="email" placeholder="Email">
     <input id="address" placeholder="Address">
 
-    <button onclick="addCustomer()">➕ Add Customer</button>
+    <button onclick="addCustomer()">Add Customer</button>
   </div>
 
   <div class="box">
-    <h2>Customers</h2>
+    <h2>👥 Customers / Leads</h2>
 
     <input
       class="search"
@@ -193,12 +337,21 @@ app.post("/login", async (req, res) => {
 
 <script>
 
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 async function addCustomer() {
 
-  const name = document.getElementById("name").value;
-  const phone = document.getElementById("phone").value;
-  const email = document.getElementById("email").value;
-  const address = document.getElementById("address").value;
+  const name = document.getElementById("name").value.trim();
+  const phone = document.getElementById("phone").value.trim();
+  const email = document.getElementById("email").value.trim();
+  const address = document.getElementById("address").value.trim();
 
   if (!name) {
     alert("Customer name required");
@@ -211,10 +364,10 @@ async function addCustomer() {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      name: name,
-      phone: phone,
-      email: email,
-      address: address
+      name,
+      phone,
+      email,
+      address
     })
   });
 
@@ -225,28 +378,42 @@ async function addCustomer() {
     document.getElementById("email").value = "";
     document.getElementById("address").value = "";
 
-    loadCustomers();
+    await loadCustomers();
 
-    alert("Customer added successfully!");} else {
+    alert("Customer added successfully!");
+  } else {
     alert("Customer add nahi hua");
   }
 }
 
 async function loadCustomers() {
+
   const response = await fetch("/customers");
+
+  if (!response.ok) {
+    document.getElementById("customers").innerHTML =
+      "<p>Unable to load customers.</p>";
+    return;
+  }
+
   const customers = await response.json();
 
-  const search = document.getElementById("search").value.toLowerCase();
-  const container = document.getElementById("customers");
+  const search =
+    document.getElementById("search").value.toLowerCase();
+
+  const container =
+    document.getElementById("customers");
 
   container.innerHTML = "";
 
   const filtered = customers.filter(function(customer) {
+
     return (
-      customer.name.toLowerCase().includes(search) ||
+      (customer.name || "").toLowerCase().includes(search) ||
       (customer.phone || "").includes(search) ||
       (customer.email || "").toLowerCase().includes(search)
     );
+
   });
 
   if (filtered.length === 0) {
@@ -255,128 +422,391 @@ async function loadCustomers() {
   }
 
   filtered.forEach(function(customer) {
+
     const div = document.createElement("div");
 
     div.className = "customer";
 
     div.innerHTML =
-      "<strong>" + customer.name + "</strong><br>" +
-      "📞 " + (customer.phone || "") + "<br>" +
-      "📧 " + (customer.email || "") + "<br>" +
-      "📍 " + (customer.address || "") +
-      "<br><button onclick='editCustomer(" +
-customer.id +
-")'>✏️ Edit</button>" +
-"<button class='delete' onclick='deleteCustomer(" +
-customer.id +
-")'>🗑 Delete</button>";
+      "<strong>" +
+      escapeHtml(customer.name) +
+      "</strong><br>" +
+
+      "📞 " +
+      escapeHtml(customer.phone) +
+      "<br>" +
+
+      "📧 " +
+      escapeHtml(customer.email) +
+      "<br>" +
+
+      "📍 " +
+      escapeHtml(customer.address) +
+
+      "<br>" +
+
+      "<button onclick='editCustomer(" +
+      customer.id +
+      ")'>✏️ Edit</button>" +
+
+      "<button class='delete' onclick='deleteCustomer(" +
+      customer.id +
+      ")'>🗑 Delete</button>";
+
     container.appendChild(div);
   });
 }
-async function editCustomer(id) {
-  const response = await fetch("/customers/" + id);
-  const customer = await response.json();
 
-  const name = prompt("Customer Name:", customer.name);
+async function editCustomer(id) {
+
+  const response =
+    await fetch("/customers/" + id);
+
+  if (!response.ok) {
+    alert("Customer not found");
+    return;
+  }
+
+  const customer =
+    await response.json();
+
+  const name =
+    prompt("Customer Name:", customer.name);
+
   if (name === null) return;
 
-  const phone = prompt("Phone:", customer.phone);
+  const phone =
+    prompt("Phone:", customer.phone);
+
   if (phone === null) return;
 
-  const email = prompt("Email:", customer.email);
+  const email =
+    prompt("Email:", customer.email);
+
   if (email === null) return;
 
-  const address = prompt("Address:", customer.address);
+  const address =
+    prompt("Address:", customer.address);
+
   if (address === null) return;
 
-  await fetch("/customers/" + id, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      name: name,
-      phone: phone,
-      email: email,
-      address: address
-    })
-  });
+  const updateResponse =
+    await fetch("/customers/" + id, {
+      method: "PUT",
 
-  loadCustomers();
-  alert("Customer updated successfully!");
+      headers: {
+        "Content-Type": "application/json"
+      },
+
+      body: JSON.stringify({
+        name,
+        phone,
+        email,
+        address
+      })
+    });
+
+  if (updateResponse.ok) {
+
+    await loadCustomers();
+
+    alert("Customer updated successfully!");
+
+  } else {
+
+    alert("Customer update nahi hua");
+
+  }
 }
+
 async function deleteCustomer(id) {
+
   if (!confirm("Delete this customer?")) {
     return;
   }
 
-  const response = await fetch("/customers/" + id, {
-    method: "DELETE"
-  });
+  const response =
+    await fetch("/customers/" + id, {
+      method: "DELETE"
+    });
 
   if (response.ok) {
-    loadCustomers();
+
+    await loadCustomers();
+
+  } else {
+
+    alert("Customer delete nahi hua");
+
   }
+}
+
+async function logout() {
+
+  await fetch("/logout", {
+    method: "POST"
+  });
+
+  window.location.href = "/login";
 }
 
 loadCustomers();
 
 </script>
+
 </body>
 </html>
   `);
 });
 
-app.get("/customers", (req, res) => {
-  const customers = db
-    .prepare("SELECT * FROM customers ORDER BY id DESC")
-    .all();
+// -------------------------
+// Get customers
+// -------------------------
 
-  res.json(customers);
-});
+app.get("/customers", requireLogin, async (req, res) => {
 
-app.post("/customers", (req, res) => {
-  const { name, phone, email, address } = req.body;
+  try {
 
-  if (!name) {
-    return res.status(400).json({
-      error: "Name is required"
+    const result = await pool.query(
+      "SELECT * FROM customers ORDER BY id DESC"
+    );
+
+    res.json(result.rows);
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      error: "Database error"
     });
+
   }
 
-  const result = db
-    .prepare(
-      "INSERT INTO customers (name, phone, email, address) VALUES (?, ?, ?, ?)"
-    )
-    .run(name, phone || "", email || "", address || "");
-
-  res.status(201).json({
-    id: result.lastInsertRowid,
-    name,
-    phone: phone || "",
-    email: email || "",
-    address: address || ""
-  });
 });
 
-app.delete("/customers/:id", (req, res) => {
-  const id = Number(req.params.id);
+// -------------------------
+// Get single customer
+// -------------------------
 
-  const result = db
-    .prepare("DELETE FROM customers WHERE id = ?")
-    .run(id);
+app.get("/customers/:id", requireLogin, async (req, res) => {
 
-  if (result.changes === 0) {
-    return res.status(404).json({
-      error: "Customer not found"
+  try {
+
+    const id = Number(req.params.id);
+
+    const result = await pool.query(
+      "SELECT * FROM customers WHERE id = $1",
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+
+      return res.status(404).json({
+        error: "Customer not found"
+      });
+
+    }
+
+    res.json(result.rows[0]);
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      error: "Database error"
     });
+
   }
 
-  res.json({
-    message: "Customer deleted successfully"
-  });
 });
 
-app.listen(3000, "0.0.0.0", () => {
-  console.log("CRM API running at http://localhost:3000");
+// -------------------------
+// Add customer
+// -------------------------
+
+app.post("/customers", requireLogin, async (req, res) => {
+
+  try {
+
+    const {
+      name,
+      phone,
+      email,
+      address
+    } = req.body;
+
+    if (!name || !name.trim()) {
+
+      return res.status(400).json({
+        error: "Name is required"
+      });
+
+    }
+
+    const result = await pool.query(
+      `
+      INSERT INTO customers
+      (name, phone, email, address)
+      VALUES ($1, $2, $3, $4)
+      RETURNING *
+      `,
+      [
+        name.trim(),
+        phone || "",
+        email || "",
+        address || ""
+      ]
+    );
+
+    res.status(201).json(result.rows[0]);
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      error: "Database error"
+    });
+
+  }
+
 });
+
+// -------------------------
+// Edit customer
+// -------------------------
+
+app.put("/customers/:id", requireLogin, async (req, res) => {
+
+  try {
+
+    const id = Number(req.params.id);
+
+    const {
+      name,
+      phone,
+      email,
+      address
+    } = req.body;
+
+    if (!name || !name.trim()) {
+
+      return res.status(400).json({
+        error: "Name is required"
+      });
+
+    }
+
+    const result = await pool.query(
+      `
+      UPDATE customers
+      SET
+        name = $1,
+        phone = $2,
+        email = $3,
+        address = $4
+      WHERE id = $5
+      RETURNING *
+      `,
+      [
+        name.trim(),
+        phone || "",
+        email || "",
+        address || "",
+        id
+      ]
+    );
+
+    if (result.rows.length === 0) {
+
+      return res.status(404).json({
+        error: "Customer not found"
+      });
+
+    }
+
+    res.json(result.rows[0]);
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      error: "Database error"
+    });
+
+  }
+
+});
+
+// -------------------------
+// Delete customer
+// -------------------------
+
+app.delete("/customers/:id", requireLogin, async (req, res) => {
+
+  try {
+
+    const id = Number(req.params.id);
+
+    const result = await pool.query(
+      "DELETE FROM customers WHERE id = $1 RETURNING id",
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+
+      return res.status(404).json({
+        error: "Customer not found"
+      });
+
+    }
+
+    res.json({
+      message: "Customer deleted successfully"
+    });
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      error: "Database error"
+    });
+
+  }
+
+});
+
+// -------------------------
+// Start server
+// -------------------------
+
+async function startServer() {
+
+  try {
+
+    await setupDatabase();
+
+    app.listen(PORT, "0.0.0.0", () => {
+
+      console.log(
+        "CRM running on port " + PORT
+      );
+
+    });
+
+  } catch (error) {
+
+    console.error(
+      "Failed to start CRM:",
+      error
+    );
+
+    process.exit(1);
+  }
+}
+
+startServer();
