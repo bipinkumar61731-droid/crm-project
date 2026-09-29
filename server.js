@@ -636,7 +636,73 @@ app.get("/customers/:id", requireLogin, async (req, res) => {
   }
 
 });
+// ------------------------------
+// Get leads
+// ------------------------------
 
+app.get("/leads", requireLogin, async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM leads ORDER BY id DESC"
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: "Database error"
+    });
+  }
+});
+
+// ------------------------------
+// Add lead
+// ------------------------------
+
+app.post("/leads", requireLogin, async (req, res) => {
+  try {
+    const {
+      name,
+      phone,
+      email,
+      source,
+      status,
+      follow_up_date,
+      notes
+    } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({
+        error: "Lead name required"
+      });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO leads
+       (name, phone, email, source, status, follow_up_date, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING *`,
+      [
+        name.trim(),
+        phone || "",
+        email || "",
+        source || "Other",
+        status || "New",
+        follow_up_date || null,
+        notes || ""
+      ]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: "Database error"
+    });
+  }
+});
 // -------------------------
 // Add customer
 // -------------------------
