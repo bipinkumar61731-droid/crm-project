@@ -336,6 +336,37 @@ app.get("/", (req, res) => {
   </div>
 
   <div class="box">
+<div class="box">
+  <h2>➕ Add Lead</h2>
+
+  <input id="lead-name" placeholder="Lead Name">
+  <input id="lead-phone" placeholder="Phone Number">
+  <input id="lead-email" placeholder="Email">
+  
+  <select id="lead-source">
+    <option value="Other">Source - Other</option>
+    <option value="Website">Website</option>
+    <option value="WhatsApp">WhatsApp</option>
+    <option value="Facebook Ads">Facebook Ads</option>
+    <option value="Instagram">Instagram</option>
+    <option value="Google Ads">Google Ads</option>
+    <option value="Referral">Referral</option>
+  </select>
+
+  <select id="lead-status">
+    <option value="New">New</option>
+    <option value="Contacted">Contacted</option>
+    <option value="Interested">Interested</option>
+    <option value="Converted">Converted</option>
+    <option value="Lost">Lost</option>
+  </select>
+
+  <input id="lead-follow-up" type="date">
+
+  <textarea id="lead-notes" placeholder="Notes"></textarea>
+
+  <button onclick="addLead()">Add Lead</button>
+</div>
     <h2>👥 Customers / Leads</h2>
 
     <input
@@ -400,7 +431,53 @@ async function addCustomer() {
     alert("Customer add nahi hua");
   }
 }
+async function addLead() {
+  const name = document.getElementById("lead-name").value.trim();
+  const phone = document.getElementById("lead-phone").value.trim();
+  const email = document.getElementById("lead-email").value.trim();
+  const source = document.getElementById("lead-source").value;
+  const status = document.getElementById("lead-status").value;
+  const follow_up_date = document.getElementById("lead-follow-up").value;
+  const notes = document.getElementById("lead-notes").value.trim();
 
+  if (!name) {
+    alert("Lead name required");
+    return;
+  }
+
+  const response = await fetch("/leads", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      name,
+      phone,
+      email,
+      source,
+      status,
+      follow_up_date,
+      notes
+    })
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    alert(data.error || "Failed to add lead");
+    return;
+  }
+
+  alert("Lead added successfully!");
+
+  document.getElementById("lead-name").value = "";
+  document.getElementById("lead-phone").value = "";
+  document.getElementById("lead-email").value = "";
+  document.getElementById("lead-source").value = "Other";
+  document.getElementById("lead-status").value = "New";
+  document.getElementById("lead-follow-up").value = "";
+  document.getElementById("lead-notes").value = "";
+}
 async function loadCustomers() {
 
   const response = await fetch("/customers");
