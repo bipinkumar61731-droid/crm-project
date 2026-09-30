@@ -656,21 +656,37 @@ app.post('/login', async function(req, res) {
       return res.redirect('/login?error=1');
     }
 
-    req.session.user = {
-      id: result.rows[0].id,
-      username: result.rows[0].username,
-      role: result.rows[0].role
-    };
+    const user = result.rows[0];
 
-    currentUserName = result.rows[0].username;
+    req.session.regenerate(function(err) {
+      if (err) {
+        console.error('Session regenerate error:', err);
+        return res.redirect('/login?error=1');
+      }
 
-    res.redirect('/');
+      req.session.user = {
+        id: user.id,
+        username: user.username,
+        role: user.role
+      };
+
+      currentUserName = user.username;
+
+      req.session.save(function(err) {
+        if (err) {
+          console.error('Session save error:', err);
+          return res.redirect('/login?error=1');
+        }
+
+        res.redirect('/');
+      });
+    });
+
   } catch (err) {
-    console.error(err);
+    console.error('Login error:', err);
     res.redirect('/login?error=1');
   }
 });
-
 app.get('/logout', function(req, res) {
   req.session.destroy(function() {
     res.redirect('/login');
