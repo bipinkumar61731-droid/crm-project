@@ -600,27 +600,6 @@ async function editCustomer(id) {
 
   if (updateResponse.ok) {
 
-    await loadCustomers();
-
-    alert("Customer updated successfully!");
-
-  } else {
-
-    alert("Customer update nahi hua");
-
-  }
-}
-
-async function deleteCustomer(id) {
-
-  if (!confirm("Delete this customer?")) {
-    return;
-  }
-
-  const response =
-    await fetch("/customers/" + id, {
-      method: "DELETE"
-    });
 
   if (response.ok) {
 
@@ -629,10 +608,20 @@ async function deleteCustomer(id) {
   } else {
 
     alert("Customer delete nahi hua");
-
-  }
 }
+}
+async function loadLeads() {
+  const response = await fetch("/leads");
+  const leads = await response.json();
 
+  const list = document.getElementById("lead-list");
+
+  if (!leads.length) {
+    list.innerHTML = "<p>No leads found.</p>";
+    return;
+  }
+
+ }
 async function logout() {
 
   await fetch("/logout", {
@@ -643,7 +632,7 @@ async function logout() {
 }
 
 loadCustomers();
-
+loadLeads();
 </script>
 
 </body>
