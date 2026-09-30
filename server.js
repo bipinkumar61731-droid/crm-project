@@ -431,7 +431,8 @@ async function addCustomer() {
     alert("Customer add nahi hua");
   }
 }
-async function addLead() {
+ {
+  async function addLead() {
   const name = document.getElementById("lead-name").value.trim();
   const phone = document.getElementById("lead-phone").value.trim();
   const email = document.getElementById("lead-email").value.trim();
@@ -445,42 +446,49 @@ async function addLead() {
     return;
   }
 
-  const response = await fetch("/leads", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      name,
-      phone,
-      email,
-      source,
-      status,
-      follow_up_date,
-      notes
-    })
-  });
+  try {
+    const response = await fetch("/leads", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        name,
+        phone,
+        email,
+        source,
+        status,
+        follow_up_date,
+        notes
+      })
+    });
 
-  const data = await response.json();
+    const data = await response.json();
 
-  if (!response.ok) {
-    alert(data.error || "Failed to add lead");
-    return;
+    if (!response.ok) {
+      alert(data.error || "Failed to add lead");
+      return;
+    }
+
+    alert("Lead added successfully!");
+
+    document.getElementById("lead-name").value = "";
+    document.getElementById("lead-phone").value = "";
+    document.getElementById("lead-email").value = "";
+    document.getElementById("lead-source").value = "Other";
+    document.getElementById("lead-status").value = "New";
+    document.getElementById("lead-follow-up").value = "";
+    document.getElementById("lead-notes").value = "";
+
+    await loadLeads();
+
+  } catch (error) {
+    console.error(error);
+    alert("Lead add karte waqt error aaya");
   }
-
-  alert("Lead added successfully!");
-
-  document.getElementById("lead-name").value = "";
-  document.getElementById("lead-phone").value = "";
-  document.getElementById("lead-email").value = "";
-  document.getElementById("lead-source").value = "Other";
-  document.getElementById("lead-status").value = "New";
-  document.getElementById("lead-follow-up").value = "";
-  document.getElementById("lead-notes").value = "";
 }
-async function loadCustomers() {
-
-  const response = await fetch("/customers");
+ async function loadCustomers() { 
+const response = await fetch("/customers");
 
   if (!response.ok) {
     document.getElementById("customers").innerHTML =
@@ -601,8 +609,7 @@ async function editCustomer(id) {
   if (updateResponse.ok) {
 
 
-  if (response.ok) {
-
+  
     await loadCustomers();
 
   } else {
