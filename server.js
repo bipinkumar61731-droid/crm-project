@@ -1194,11 +1194,14 @@ app.get('/', requireLogin, async function(req, res) {
     <strong>🟢 Running</strong>
   </div>
 </div>
-
 <div class="today-box">
   <h2>📌 Today's Follow-ups</h2>
   <p>Check today's scheduled follow-ups.</p>
-  <a href="/followups" class="action-btn">View Follow-ups →</a>
+
+  <div class="action-buttons">
+    <a href="/followups" class="action-btn">View Follow-ups →</a>
+    <a href="/leads" class="action-btn">View All Leads →</a>
+  </div>
 </div>
         <div class="panel">
           <div class="panel-title">Lead Status Overview</div>
