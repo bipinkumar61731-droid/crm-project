@@ -380,7 +380,68 @@ textarea:focus{
   background:#123d2c;
   border:1px solid #1f7953;
 }
+.quick-actions,
+.status-box,
+.today-box {
+  background:#111827;
+  border:1px solid #1f2937;
+  border-radius:16px;
+  padding:20px;
+  margin-bottom:20px;
+  box-shadow:0 10px 30px rgba(0,0,0,.12);
+}
 
+.quick-actions h2,
+.status-box h2,
+.today-box h2 {
+  margin-top:0;
+  margin-bottom:16px;
+}
+
+.action-buttons {
+  display:flex;
+  gap:12px;
+  flex-wrap:wrap;
+}
+
+.action-btn {
+  display:inline-block;
+  padding:11px 16px;
+  border-radius:10px;
+  text-decoration:none;
+  color:white;
+  background:#2563eb;
+  font-weight:700;
+}
+
+.action-btn:hover {
+  opacity:.9;
+}
+
+.status-item {
+  display:flex;
+  justify-content:space-between;
+  gap:15px;
+  padding:13px 0;
+  border-bottom:1px solid #1f2937;
+}
+
+.status-item:last-child {
+  border-bottom:0;
+}
+
+.status-item span {
+  color:#cbd5e1;
+}
+
+.status-item strong {
+  color:#22c55e;
+}
+
+.today-box p {
+  color:#94a3b8;
+  margin-bottom:16px;
+}
 @media(max-width:900px){
   .sidebar{
     position:static;
@@ -1112,7 +1173,33 @@ app.get('/', requireLogin, async function(req, res) {
       </div>
 
       <div class="dash-grid">
+<div class="quick-actions">
+  <h2>⚡ Quick Actions</h2>
+  <div class="action-buttons">
+    <a href="/leads/add" class="action-btn">➕ Add Lead</a>
+    <a href="/customers/add" class="action-btn">👤 Add Customer</a>
+    <a href="/followups" class="action-btn">📅 Follow-ups</a>
+    <a href="/api-info" class="action-btn">🔗 API Info</a>
+  </div>
+</div>
 
+<div class="status-box">
+  <h2>📱 WhatsApp & API Status</h2>
+  <div class="status-item">
+    <span>WhatsApp Business API</span>
+    <strong>⚪ Not Connected</strong>
+  </div>
+  <div class="status-item">
+    <span>CRM API</span>
+    <strong>🟢 Running</strong>
+  </div>
+</div>
+
+<div class="today-box">
+  <h2>📌 Today's Follow-ups</h2>
+  <p>Check today's scheduled follow-ups.</p>
+  <a href="/followups" class="action-btn">View Follow-ups →</a>
+</div>
         <div class="panel">
           <div class="panel-title">Lead Status Overview</div>
 
