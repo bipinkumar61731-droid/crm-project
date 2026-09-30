@@ -2506,7 +2506,33 @@ ads, WhatsApp Business API and other systems.
   );
 
 });
+/* WHATSAPP WEBHOOK */
 
+app.get('/webhook/whatsapp', function(req, res) {
+
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN || 'crm-whatsapp-verify';
+
+  if (mode === 'subscribe' && token === verifyToken) {
+    return res.status(200).send(challenge);
+  }
+
+  res.sendStatus(403);
+});
+
+app.post('/webhook/whatsapp', function(req, res) {
+
+  console.log('WhatsApp webhook received');
+
+  console.log(
+    JSON.stringify(req.body, null, 2)
+  );
+
+  res.sendStatus(200);
+});
 /* PUBLIC API */
 
 app.get('/health', async function(req, res) {
