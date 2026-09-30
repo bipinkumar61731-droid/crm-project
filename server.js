@@ -896,14 +896,44 @@ app.get('/', requireLogin, async function(req, res) {
     }).join('');
 
     const recentLeads = recentLeadsResult.rows.map(lead => `
-      <tr>
-        <td><strong>${esc(lead.name)}</strong></td>
-        <td>${esc(lead.phone || '-')}</td>
-        <td><span class="badge source">${esc(lead.source || 'Other')}</span></td>
-        <td><span class="badge status">${esc(lead.status || '-')}</span></td>
-        <td>${lead.follow_up ? esc(String(lead.follow_up).slice(0, 10)) : '-'}</td>
-      </tr>
-    `).join('');
+  <tr>
+    <td><strong>${esc(lead.name)}</strong></td>
+
+    <td>
+      ${esc(lead.phone || '-')}
+      ${
+        lead.phone
+          ? `
+            <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
+              <a href="tel:${esc(lead.phone)}" class="badge source" style="text-decoration:none;">
+                📞 Call
+              </a>
+              <a href="https://wa.me/${String(lead.phone).replace(/[^0-9]/g, '')}" target="_blank" class="badge status" style="text-decoration:none;">
+                💬 WhatsApp
+              </a>
+            </div>
+          `
+          : ''
+      }
+    </td>
+
+    <td>
+      <span class="badge source">
+        ${esc(lead.source || 'Other')}
+      </span>
+    </td>
+
+    <td>
+      <span class="badge status">
+        ${esc(lead.status || '-')}
+      </span>
+    </td>
+
+    <td>
+      ${lead.follow_up ? esc(String(lead.follow_up).slice(0, 10)) : '-'}
+    </td>
+  </tr>
+`).join('');
 
     const content = `
       <style>
