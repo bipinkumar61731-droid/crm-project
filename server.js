@@ -4,8 +4,9 @@ const pg = require('pg');
 
 const { Pool } = pg;
 const app = express();
-app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
+
+app.set('trust proxy', 1);
 
 if (!process.env.DATABASE_URL) {
   console.warn('DATABASE_URL missing. Add it on Render Environment Variables.');
@@ -20,13 +21,15 @@ const pool = new Pool({
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
-app.set('trust proxy', 1);
+
 app.use(session({
   secret: process.env.SESSION_SECRET || 'crm-secret-change-this',
   resave: false,
   saveUninitialized: false,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    sameSite: 'lax',
     maxAge: 24 * 60 * 60 * 1000
   }
 }));
@@ -41,947 +44,433 @@ function esc(value) {
 }
 
 function selected(a, b) {
-  return a === b ? 'selected' : '';
+  return String(a ?? '') === String(b ?? '') ? 'selected' : '';
 }
 
 function requireLogin(req, res, next) {
-  if (!req.session.user) return res.redirect('/login');
+  if (!req.session.user) {
+    return res.redirect('/login');
+  }
   next();
 }
 
-let currentUserName = 'admin';
+function requireAdmin(req, res, next) {
+  if (!req.session.user) {
+    return res.redirect('/login');
+  }
 
-function reqUserName() {
-  return currentUserName;
+  if (req.session.user.role !== 'admin') {
+    return res.status(403).send(
+      page(
+        'Access Denied',
+        '<div class="card"><h2>Access denied</h2><p>Only admin can access this section.</p></div>',
+        '',
+        req.session.user.username
+      )
+    );
+  }
+
+  next();
 }
 
-function css() {
+function page(title, content, active, username) {
+  const nav = [
+    ['/', 'Dashboard', 'dashboard'],
+    ['/customers', 'Customers', 'customers'],
+    ['/leads', 'Leads', 'leads'],
+    ['/followups', 'Follow-ups', 'followups'],
+    ['/staff', 'Staff', 'staff'],
+    ['/api-info', 'API', 'api']
+  ];
+
+  let links = '';
+
+  for (const item of nav) {
+    links +=
+      '<a class="nav-link ' +
+      (active === item[2] ? 'active' : '') +
+      '" href="' +
+      item[0] +
+      '">' +
+      item[1] +
+      '</a>';
+  }
+
   return `
-  *,*::before,*::after{
-    box-sizing:border-box
-  }
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${esc(title)} - CRM</title>
 
-  body{
-    margin:0;
-    font-family:Inter,Arial,sans-serif;
-    background:#0b1020;
-    color:#eef2ff
-  }
+<style>
+*{
+  box-sizing:border-box;
+}
 
-  a{
-    text-decoration:none;
-    color:inherit
-  }
+body{
+  margin:0;
+  font-family:Arial,Helvetica,sans-serif;
+  background:#0b1020;
+  color:#f4f7fb;
+}
 
-  .app{
-    display:flex;
-    min-height:100vh
-  }
+a{
+  color:inherit;
+  text-decoration:none;
+}
 
+.layout{
+  display:flex;
+  min-height:100vh;
+}
+
+.sidebar{
+  width:230px;
+  background:#11182b;
+  border-right:1px solid #26304a;
+  padding:22px 14px;
+  position:fixed;
+  left:0;
+  top:0;
+  bottom:0;
+}
+
+.logo{
+  font-size:24px;
+  font-weight:800;
+  padding:8px 12px 25px;
+}
+
+.logo span{
+  color:#6ea8ff;
+}
+
+.nav-link{
+  display:block;
+  padding:12px 14px;
+  border-radius:10px;
+  margin:5px 0;
+  color:#aeb8cc;
+}
+
+.nav-link:hover,
+.nav-link.active{
+  background:#1d2945;
+  color:#fff;
+}
+
+.main{
+  margin-left:230px;
+  width:calc(100% - 230px);
+  padding:25px;
+}
+
+.topbar{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:15px;
+  margin-bottom:25px;
+}
+
+.topbar h1{
+  margin:0;
+  font-size:28px;
+}
+
+.user-box{
+  background:#151e34;
+  padding:10px 15px;
+  border:1px solid #293550;
+  border-radius:10px;
+}
+
+.grid{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:15px;
+}
+
+.grid-2{
+  display:grid;
+  grid-template-columns:repeat(2,1fr);
+  gap:18px;
+}
+
+.card{
+  background:#11182b;
+  border:1px solid #26304a;
+  border-radius:15px;
+  padding:20px;
+  margin-bottom:18px;
+}
+
+.stat{
+  font-size:30px;
+  font-weight:800;
+  margin-top:8px;
+}
+
+.muted{
+  color:#8f9bb2;
+}
+
+table{
+  width:100%;
+  border-collapse:collapse;
+}
+
+th,td{
+  padding:12px 10px;
+  border-bottom:1px solid #26304a;
+  text-align:left;
+}
+
+th{
+  color:#9ca9c1;
+  font-size:13px;
+}
+
+input,
+select,
+textarea{
+  width:100%;
+  padding:11px 12px;
+  border-radius:9px;
+  border:1px solid #303d59;
+  background:#0c1325;
+  color:#fff;
+  outline:none;
+}
+
+textarea{
+  min-height:90px;
+  resize:vertical;
+}
+
+input:focus,
+select:focus,
+textarea:focus{
+  border-color:#6ea8ff;
+}
+
+.form-grid{
+  display:grid;
+  grid-template-columns:repeat(2,1fr);
+  gap:14px;
+}
+
+.form-group{
+  margin-bottom:14px;
+}
+
+.form-group label{
+  display:block;
+  margin-bottom:7px;
+  color:#aeb8cc;
+  font-size:14px;
+}
+
+.btn{
+  display:inline-block;
+  border:0;
+  padding:10px 15px;
+  border-radius:9px;
+  cursor:pointer;
+  background:#3478f6;
+  color:#fff;
+  font-weight:700;
+}
+
+.btn:hover{
+  opacity:.9;
+}
+
+.btn-danger{
+  background:#d94343;
+}
+
+.btn-green{
+  background:#198754;
+}
+
+.btn-gray{
+  background:#34405b;
+}
+
+.actions{
+  display:flex;
+  gap:7px;
+  flex-wrap:wrap;
+}
+
+.badge{
+  display:inline-block;
+  padding:5px 9px;
+  border-radius:20px;
+  background:#253452;
+  font-size:12px;
+}
+
+.search-row{
+  display:grid;
+  grid-template-columns:2fr 1fr 1fr auto;
+  gap:10px;
+  margin-bottom:18px;
+}
+
+.bar{
+  height:9px;
+  background:#202b44;
+  border-radius:20px;
+  overflow:hidden;
+}
+
+.bar span{
+  display:block;
+  height:100%;
+  background:#4d8dff;
+}
+
+.quick{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:12px;
+}
+
+.quick a{
+  background:#18233b;
+  border:1px solid #2b3956;
+  padding:18px;
+  border-radius:12px;
+}
+
+.login-page{
+  min-height:100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:20px;
+}
+
+.login-box{
+  width:100%;
+  max-width:400px;
+  background:#11182b;
+  border:1px solid #26304a;
+  padding:30px;
+  border-radius:18px;
+}
+
+.login-box h1{
+  margin-top:0;
+}
+
+.alert{
+  background:#42202a;
+  border:1px solid #7c3342;
+  padding:12px;
+  border-radius:9px;
+  margin-bottom:15px;
+}
+
+.success{
+  background:#123d2c;
+  border:1px solid #1f7953;
+}
+
+@media(max-width:900px){
   .sidebar{
-    width:235px;
-    background:#0e1426;
-    border-right:1px solid #202945;
-    padding:22px 14px;
-    display:flex;
-    flex-direction:column;
-    position:fixed;
-    inset:0 auto 0 0
+    position:static;
+    width:100%;
+    height:auto;
+    border-right:0;
+    border-bottom:1px solid #26304a;
   }
 
-  .brand{
-    display:flex;
-    gap:10px;
-    align-items:center;
-    padding:4px 10px 25px
-  }
-
-  .brand b{
-    font-size:19px
-  }
-
-  .brand small{
+  .layout{
     display:block;
-    color:#7f8ba8;
-    font-size:11px;
-    margin-top:3px
-  }
-
-  .logo{
-    width:38px;
-    height:38px;
-    border-radius:11px;
-    background:linear-gradient(135deg,#6d5dfc,#25c6ff);
-    display:grid;
-    place-items:center;
-    font-weight:800;
-    font-size:20px
-  }
-
-  .nav{
-    display:block;
-    padding:13px;
-    border-radius:10px;
-    color:#9aa5c0;
-    margin:4px 0;
-    font-size:14px
-  }
-
-  .nav:hover,
-  .nav.active{
-    background:#1a2340;
-    color:#fff
-  }
-
-  .sidebottom{
-    margin-top:auto
-  }
-
-  .userbox{
-    border-top:1px solid #202945;
-    padding:15px 10px;
-    color:#dce2f4
-  }
-
-  .userbox small{
-    display:block;
-    color:#77839f;
-    margin-top:4px
-  }
-
-  .logout{
-    display:block;
-    padding:11px 10px;
-    color:#ff8e9b;
-    font-size:14px
   }
 
   .main{
-    margin-left:235px;
-    width:calc(100% - 235px);
-    padding:28px 34px 45px
-  }
-
-  header{
-    display:flex;
-    justify-content:space-between;
-    align-items:flex-start;
-    margin-bottom:24px
-  }
-
-  .eyebrow{
-    font-size:10px;
-    color:#7180a0;
-    letter-spacing:2px;
-    margin-bottom:5px
-  }
-
-  h1{
-    font-size:27px;
-    margin:0
-  }
-
-  .topright{
-    font-size:12px;
-    color:#7ee2a8
-  }
-
-  .online{
-    background:#10271f;
-    padding:8px 11px;
-    border-radius:20px
-  }
-
-  .cards{
-    display:grid;
-    grid-template-columns:repeat(4,1fr);
-    gap:14px;
-    margin-bottom:20px
-  }
-
-  .card,
-  .panel{
-    background:#11182c;
-    border:1px solid #202945;
-    border-radius:14px
-  }
-
-  .card{
-    padding:18px
-  }
-
-  .card .label{
-    color:#8290ad;
-    font-size:12px
-  }
-
-  .card .num{
-    font-size:29px;
-    font-weight:800;
-    margin-top:8px
-  }
-
-  .grid2{
-    display:grid;
-    grid-template-columns:1.35fr 1fr;
-    gap:18px
-  }
-
-  .panel{
-    padding:20px;
-    margin-bottom:18px
-  }
-
-  .panel h2{
-    font-size:16px;
-    margin:0 0 16px
-  }
-
-  .tablewrap{
-    overflow:auto
-  }
-
-  .table{
+    margin-left:0;
     width:100%;
-    border-collapse:collapse;
-    font-size:13px
   }
 
-  .table th,
-  .table td{
-    text-align:left;
-    padding:12px 9px;
-    border-bottom:1px solid #202945;
-    white-space:nowrap
-  }
-
-  .table th{
-    color:#7e8ba7;
-    font-weight:600
-  }
-
-  .muted{
-    color:#7f8ba5
-  }
-
-  .formgrid{
-    display:grid;
+  .grid{
     grid-template-columns:repeat(2,1fr);
-    gap:12px
   }
 
-  .formgrid.three{
-    grid-template-columns:repeat(3,1fr)
+  .grid-2{
+    grid-template-columns:1fr;
   }
 
-  label{
-    font-size:12px;
-    color:#8d99b2;
-    display:block;
-    margin-bottom:6px
+  .search-row{
+    grid-template-columns:1fr;
+  }
+}
+
+@media(max-width:600px){
+  .main{
+    padding:15px;
   }
 
-  input,
-  select,
-  textarea{
-    width:100%;
-    background:#0b1121;
-    border:1px solid #283352;
-    color:#eef2ff;
-    border-radius:9px;
-    padding:11px 12px;
-    outline:none
+  .grid,
+  .form-grid,
+  .quick{
+    grid-template-columns:1fr;
   }
 
-  textarea{
-    min-height:88px;
-    resize:vertical
+  .topbar{
+    align-items:flex-start;
+    flex-direction:column;
   }
 
-  input:focus,
-  select:focus,
-  textarea:focus{
-    border-color:#6575ff
-  }
-
-  .btn{
-    border:0;
-    border-radius:9px;
-    padding:11px 15px;
-    background:#5967ff;
-    color:white;
-    font-weight:700;
-    cursor:pointer
-  }
-
-  .btn.secondary{
-    background:#202a46
-  }
-
-  .btn.danger{
-    background:#5a2430
-  }
-
-  .actions{
-    display:flex;
-    gap:7px
-  }
-
-  .pill{
-    display:inline-block;
-    padding:5px 9px;
-    border-radius:20px;
-    font-size:11px;
-    background:#202a46;
-    color:#cbd4eb
-  }
-
-  .pill.green{
-    background:#143528;
-    color:#76e0a8
-  }
-
-  .pill.yellow{
-    background:#3b3114;
-    color:#f2d477
-  }
-
-  .pill.red{
-    background:#3c2028;
-    color:#ff98a8
-  }
-
-  .searchbar{
-    display:flex;
-    gap:10px;
-    margin-bottom:15px
-  }
-
-  .searchbar input{
-    max-width:360px
-  }
-
-  .statsline{
-    display:flex;
-    gap:10px;
-    flex-wrap:wrap
-  }
-
-  .mini{
-    padding:10px 13px;
-    background:#0d1427;
-    border:1px solid #202945;
-    border-radius:9px;
-    color:#aab5ca;
-    font-size:12px
-  }
-
-  .empty{
-    text-align:center;
-    color:#73809d;
-    padding:25px
-  }
-
-  .notice{
-    padding:12px 14px;
-    border-radius:9px;
-    background:#15233a;
-    color:#a9c7ff;
-    margin-bottom:15px
-  }
-
-  .loginbody{
-    min-height:100vh;
-    display:grid;
-    place-items:center;
-    background:#080d19
-  }
-
-  .loginbox{
-    width:min(420px,92vw);
-    background:#11182c;
-    border:1px solid #202945;
-    border-radius:18px;
-    padding:28px
-  }
-
-  .loginbox h1{
-    margin-bottom:7px
-  }
-
-  .loginbox p{
-    color:#7f8ba7;
-    font-size:13px
-  }
-
-  .loginbox form{
-    margin-top:22px
-  }
-
-  .loginbox .field{
-    margin-bottom:14px
-  }
-
-  .full{
-    width:100%
-  }
-
-  .error{
-    background:#3a2029;
-    color:#ffabb7;
-    padding:10px;
-    border-radius:8px;
+  table{
     font-size:13px;
-    margin-bottom:14px
   }
 
-  @media(max-width:950px){
-    .cards{
-      grid-template-columns:repeat(2,1fr)
-    }
-
-    .grid2{
-      grid-template-columns:1fr
-    }
+  th,td{
+    padding:9px 6px;
   }
 
-  @media(max-width:700px){
-    .sidebar{
-      position:static;
-      width:100%;
-      height:auto
-    }
-
-    .app{
-      display:block
-    }
-
-    .sidebar nav{
-      display:flex;
-      overflow:auto
-    }
-
-    .nav{
-      white-space:nowrap
-    }
-
-    .sidebottom{
-      display:none
-    }
-
-    .main{
-      margin:0;
-      width:100%;
-      padding:20px 14px
-    }
-
-    .cards{
-      grid-template-columns:1fr 1fr
-    }
-
-    .formgrid,
-    .formgrid.three{
-      grid-template-columns:1fr
-    }
-
-    header{
-      align-items:center
-    }
-
-    .topright{
-      display:none
-    }
+  .table-wrap{
+    overflow-x:auto;
   }
-  `;
 }
+</style>
+</head>
 
-function page(title, content, active) {
-  const nav = [
-    ['dashboard', 'Dashboard', '/'],
-    ['customers', 'Customers', '/customers'],
-    ['leads', 'Leads', '/leads'],
-    ['followups', 'Follow-ups', '/followups'],
-    ['staff', 'Staff', '/staff'],
-    ['api', 'API', '/api-info']
-  ];
+<body>
 
-  const links = nav.map(function(item) {
-    return '<a class="nav ' +
-      (active === item[0] ? 'active' : '') +
-      '" href="' + item[2] + '">' +
-      item[1] +
-      '</a>';
-  }).join('');
+<div class="layout">
 
-  return '<!doctype html>' +
-    '<html>' +
-    '<head>' +
-    '<meta charset="utf-8">' +
-    '<meta name="viewport" content="width=device-width,initial-scale=1">' +
-    '<title>' + esc(title) + ' - CRM</title>' +
-    '<style>' + css() + '</style>' +
-    '</head>' +
-    '<body>' +
-    '<div class="app">' +
+<aside class="sidebar">
+  <div class="logo">My<span>CRM</span></div>
+  ${links}
+  <a class="nav-link" href="/logout">Logout</a>
+</aside>
 
-    '<aside class="sidebar">' +
-    '<div class="brand">' +
-    '<div class="logo">C</div>' +
-    '<div><b>CRM Pro</b><small>Business CRM</small></div>' +
-    '</div>' +
+<main class="main">
 
-    '<nav>' + links + '</nav>' +
+<div class="topbar">
+  <h1>${esc(title)}</h1>
+  <div class="user-box">
+    👤 ${esc(username || 'Admin')}
+  </div>
+</div>
 
-    '<div class="sidebottom">' +
-    '<div class="userbox">' +
-    '<b>' + esc(reqUserName()) + '</b>' +
-    '<small>Administrator</small>' +
-    '</div>' +
-    '<a class="logout" href="/logout">Logout</a>' +
-    '</div>' +
-    '</aside>' +
+${content}
 
-    '<main class="main">' +
-    '<header>' +
-    '<div>' +
-    '<div class="eyebrow">CRM MANAGEMENT</div>' +
-    '<h1>' + esc(title) + '</h1>' +
-    '</div>' +
-    '<div class="topright"><span class="online">● System Online</span></div>' +
-    '</header>' +
-    content +
-    '</main>' +
+</main>
+</div>
 
-    '</div>' +
-    '</body>' +
-    '</html>';
+</body>
+</html>
+`;
 }
-
-async function setupDatabase() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS users (
-      id SERIAL PRIMARY KEY,
-      username VARCHAR(100) UNIQUE NOT NULL,
-      password VARCHAR(255) NOT NULL,
-      role VARCHAR(50) DEFAULT 'staff',
-      created_at TIMESTAMP DEFAULT NOW()
-    )
-  `);
-await pool.query(`
-    ALTER TABLE users
-    ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'staff'
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS customers (
-      id SERIAL PRIMARY KEY,
-      name VARCHAR(150) NOT NULL,
-      phone VARCHAR(50),
-      email VARCHAR(150),
-      address TEXT,
-      created_at TIMESTAMP DEFAULT NOW()
-    )
-  `);
-await pool.query(`
-  ALTER TABLE leads
-  ADD COLUMN IF NOT EXISTS follow_up DATE
-`);
-    await pool.query(
-    `INSERT INTO users(username,password,role)
-     VALUES($1,$2,$3)
-     ON CONFLICT(username)
-     DO UPDATE SET password=EXCLUDED.password, role=EXCLUDED.role`,
-    ['admin', 'Admin@123', 'admin']
-  );
-}
-
-app.get('/login', function(req, res) {
-  if (req.session.user) return res.redirect('/');
-
-  const error = req.query.error
-    ? '<div class="error">Username or password failed.</div>'
-    : '';
-
-  res.send(
-    '<!doctype html>' +
-    '<html><head>' +
-    '<meta charset="utf-8">' +
-    '<meta name="viewport" content="width=device-width,initial-scale=1">' +
-    '<title>CRM Login</title>' +
-    '<style>' + css() + '</style>' +
-    '</head>' +
-    '<body class="loginbody">' +
-    '<div class="loginbox">' +
-    '<div class="brand">' +
-    '<div class="logo">C</div>' +
-    '<div><b>CRM Pro</b><small>Business CRM</small></div>' +
-    '</div>' +
-    '<h1>Welcome back</h1>' +
-    '<p>Sign in to manage your CRM.</p>' +
-    error +
-    '<form method="post" action="/login">' +
-    '<div class="field">' +
-    '<label>Username</label>' +
-    '<input name="username" required>' +
-    '</div>' +
-    '<div class="field">' +
-    '<label>Password</label>' +
-    '<input name="password" type="password" required>' +
-    '</div>' +
-    '<button class="btn full">Login</button>' +
-    '</form>' +
-    '</div>' +
-    '</body></html>'
-  );
-});
-
-app.post('/login', async function(req, res) {
-  try {
-    const result = await pool.query(
-      'SELECT * FROM users WHERE username=$1 AND password=$2',
-      [req.body.username, req.body.password]
-    );
-
-    if (!result.rows[0]) {
-      return res.redirect('/login?error=1');
-    }
-
-    const user = result.rows[0];
-
-    req.session.regenerate(function(err) {
-      if (err) {
-        console.error('Session regenerate error:', err);
-        return res.redirect('/login?error=1');
-      }
-
-      req.session.user = {
-        id: user.id,
-        username: user.username,
-        role: user.role
-      };
-
-      currentUserName = user.username;
-
-      req.session.save(function(err) {
-        if (err) {
-          console.error('Session save error:', err);
-          return res.redirect('/login?error=1');
-        }
-
-        res.redirect('/');
-      });
-    });
-
-  } catch (err) {
-    console.error('Login error:', err);
-    res.redirect('/login?error=1');
-  }
-});
-app.get('/logout', function(req, res) {
-  req.session.destroy(function() {
-    res.redirect('/login');
-  });
-});
-
-function stat(label, value) {
-  return '<div class="card">' +
-    '<div class="label">' + label + '</div>' +
-    '<div class="num">' + value + '</div>' +
-    '</div>';
-}
-
-app.get('/', requireLogin, async function(req, res) {
-  currentUserName = req.session.user.username;
-
-  try {
-    const q = async function(sql) {
-      const r = await pool.query(sql);
-      return r.rows[0].count;
-    };
-
-    const totalCustomers =
-      await q('SELECT COUNT(*)::int AS count FROM customers');
-
-    const totalLeads =
-      await q('SELECT COUNT(*)::int AS count FROM leads');
-
-    const newLeads =
-      await q("SELECT COUNT(*)::int AS count FROM leads WHERE status='New'");
-
-    const converted =
-      await q("SELECT COUNT(*)::int AS count FROM leads WHERE status='Converted'");
-
-    const pending =
-      await q(`
-        SELECT COUNT(*)::int AS count
-        FROM leads
-        WHERE follow_up IS NOT NULL
-        AND follow_up <= CURRENT_DATE
-        AND status NOT IN ('Converted','Lost')
-      `);
-
-    const interested =
-      await q("SELECT COUNT(*)::int AS count FROM leads WHERE status='Interested'");
-
-    const recent =
-      await pool.query('SELECT * FROM leads ORDER BY id DESC LIMIT 8');
-
-    const rows = recent.rows.map(function(l) {
-      return '<tr>' +
-        '<td>' + esc(l.name) + '</td>' +
-        '<td>' + esc(l.phone) + '</td>' +
-        '<td>' + esc(l.source) + '</td>' +
-        '<td><span class="pill">' + esc(l.status) + '</span></td>' +
-        '<td>' + esc(l.follow_up || '-') + '</td>' +
-        '</tr>';
-    }).join('');
-
-    const content =
-      '<div class="cards">' +
-      stat('Customers', totalCustomers) +
-      stat('Total Leads', totalLeads) +
-      stat('New Leads', newLeads) +
-      stat('Converted', converted) +
-      '</div>' +
-
-      '<div class="statsline" style="margin-bottom:18px">' +
-      '<div class="mini">Interested: <b>' + interested + '</b></div>' +
-      '<div class="mini">Pending follow-ups: <b>' + pending + '</b></div>' +
-      '</div>' +
-
-      '<div class="grid2">' +
-
-      '<div class="panel">' +
-      '<h2>Recent Leads</h2>' +
-      '<div class="tablewrap">' +
-      '<table class="table">' +
-      '<thead><tr>' +
-      '<th>Name</th><th>Phone</th><th>Source</th>' +
-      '<th>Status</th><th>Follow-up</th>' +
-      '</tr></thead>' +
-      '<tbody>' +
-      (rows ||
-        '<tr><td colspan="5" class="empty">No leads yet</td></tr>') +
-      '</tbody>' +
-      '</table>' +
-      '</div>' +
-      '</div>' +
-
-      '<div class="panel">' +
-      '<h2>Quick Actions</h2>' +
-      '<p class="muted">Add records and manage your sales pipeline.</p>' +
-      '<div class="actions">' +
-      '<a class="btn" href="/customers">Add Customer</a>' +
-      '<a class="btn secondary" href="/leads">Add Lead</a>' +
-      '</div>' +
-      '<div class="notice" style="margin-top:18px">' +
-      'WhatsApp Business, ads integrations and advanced reports can be connected in the next stages.' +
-      '</div>' +
-      '</div>' +
-
-      '</div>';
-
-    res.send(page('Dashboard', content, 'dashboard'));
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Dashboard error: ' + esc(err.message));
-  }
-});
-
-app.get('/customers', requireLogin, async function(req, res) {
-  try {
-    const search = String(req.query.search || '').trim();
-
-    const result = search
-      ? await pool.query(
-          `SELECT * FROM customers
-           WHERE name ILIKE $1
-           OR phone ILIKE $1
-           OR email ILIKE $1
-           ORDER BY id DESC`,
-          ['%' + search + '%']
-        )
-      : await pool.query(
-          'SELECT * FROM customers ORDER BY id DESC'
-        );
-
-    const editId = req.query.edit ? Number(req.query.edit) : 0;
-    let edit = null;
-
-    if (editId) {
-      const er =
-        await pool.query(
-          'SELECT * FROM customers WHERE id=$1',
-          [editId]
-        );
-
-      edit = er.rows[0] || null;
-    }
-
-    const rows = result.rows.map(function(c) {
-      return '<tr>' +
-        '<td>' + esc(c.name) + '</td>' +
-        '<td>' + esc(c.phone) + '</td>' +
-        '<td>' + esc(c.email) + '</td>' +
-        '<td>' + esc(c.address) + '</td>' +
-        '<td>' +
-        '<div class="actions">' +
-        '<a class="btn secondary" href="/customers?edit=' +
-        c.id + '">Edit</a>' +
-
-        '<form method="post" action="/customers/delete/' +
-        c.id +
-        '" onsubmit="return confirm(\'Delete this customer?\')">' +
-        '<button class="btn danger">Delete</button>' +
-        '</form>' +
-
-        '</div>' +
-        '</td>' +
-        '</tr>';
-    }).join('');
-
-    const form =
-      '<div class="panel">' +
-      '<h2>' +
-      (edit ? 'Edit Customer' : 'Add Customer') +
-      '</h2>' +
-
-      '<form method="post" action="' +
-      (edit
-        ? '/customers/edit/' + edit.id
-        : '/customers/add') +
-      '">' +
-
-      '<div class="formgrid">' +
-
-      '<div>' +
-      '<label>Name</label>' +
-      '<input name="name" value="' +
-      esc(edit ? edit.name : '') +
-      '" required>' +
-      '</div>' +
-
-      '<div>' +
-      '<label>Phone</label>' +
-      '<input name="phone" value="' +
-      esc(edit ? edit.phone : '') +
-      '">' +
-      '</div>' +
-
-      '<div>' +
-      '<label>Email</label>' +
-      '<input type="email" name="email" value="' +
-      esc(edit ? edit.email : '') +
-      '">' +
-      '</div>' +
-
-      '<div>' +
-      '<label>Address</label>' +
-      '<input name="address" value="' +
-      esc(edit ? edit.address : '') +
-      '">' +
-      '</div>' +
-
-      '</div><br>' +
-
-      '<div class="actions">' +
-      '<button class="btn">' +
-      (edit ? 'Update Customer' : 'Add Customer') +
-      '</button>' +
-
-      (edit
-        ? '<a class="btn secondary" href="/customers">Cancel</a>'
-        : '') +
-
-      '</div>' +
-
-      '</form>' +
-      '</div>';
-
-    const content =
-      form +
-
-      '<div class="panel">' +
-      '<h2>Customers</h2>' +
-
-      '<form class="searchbar" method="get">' +
-      '<input name="search" placeholder="Search name, phone or email" value="' +
-      esc(search) +
-      '">' +
-      '<button class="btn">Search</button>' +
-      '<a class="btn secondary" href="/customers">Clear</a>' +
-      '</form>' +
-
-      '<div class="tablewrap">' +
-      '<table class="table">' +
-      '<thead><tr>' +
-      '<th>Name</th>' +
-      '<th>Phone</th>' +
-      '<th>Email</th>' +
-      '<th>Address</th>' +
-      '<th>Actions</th>' +
-      '</tr></thead>' +
-
-      '<tbody>' +
-      (rows ||
-        '<tr><td colspan="5" class="empty">No customers found</td></tr>') +
-      '</tbody>' +
-
-      '</table>' +
-      '</div>' +
-      '</div>';
-
-    res.send(page('Customers', content, 'customers'));
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Customer error: ' + esc(err.message));
-  }
-});
-
-app.post('/customers/add', requireLogin, async function(req, res) {
-  if (!String(req.body.name || '').trim()) {
-    return res.status(400).send('Customer name required');
-  }
-
-  await pool.query(
-    `INSERT INTO customers(name,phone,email,address)
-     VALUES($1,$2,$3,$4)`,
-    [
-      req.body.name,
-      req.body.phone,
-      req.body.email,
-      req.body.address
-    ]
-  );
-
-  res.redirect('/customers');
-});
-
-app.post('/customers/edit/:id', requireLogin, async function(req, res) {
-  await pool.query(
-    `UPDATE customers
-     SET name=$1,phone=$2,email=$3,address=$4
-     WHERE id=$5`,
-    [
-      req.body.name,
-      req.body.phone,
-      req.body.email,
-      req.body.address,
-      req.params.id
-    ]
-  );
-
-  res.redirect('/customers');
-});
-
-app.post('/customers/delete/:id', requireLogin, async function(req, res) {
-  await pool.query(
-    'DELETE FROM customers WHERE id=$1',
-    [req.params.id]
-  );
-
-  res.redirect('/customers');
-});
 
 const sourceOptions = [
   'WhatsApp',
@@ -1002,573 +491,1794 @@ const statusOptions = [
   'Lost'
 ];
 
-function options(list, value) {
-  return list.map(function(x) {
-    return '<option value="' +
-      esc(x) +
-      '" ' +
-      selected(x, value) +
-      '>' +
-      esc(x) +
-      '</option>';
-  }).join('');
+async function setupDatabase() {
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      username VARCHAR(100) UNIQUE NOT NULL,
+      password VARCHAR(255) NOT NULL,
+      role VARCHAR(50) DEFAULT 'staff',
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'staff'
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS customers (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(150) NOT NULL,
+      phone VARCHAR(50),
+      email VARCHAR(150),
+      address TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    ALTER TABLE customers
+    ADD COLUMN IF NOT EXISTS phone VARCHAR(50)
+  `);
+
+  await pool.query(`
+    ALTER TABLE customers
+    ADD COLUMN IF NOT EXISTS email VARCHAR(150)
+  `);
+
+  await pool.query(`
+    ALTER TABLE customers
+    ADD COLUMN IF NOT EXISTS address TEXT
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS leads (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(150) NOT NULL,
+      phone VARCHAR(50),
+      email VARCHAR(150),
+      source VARCHAR(100),
+      status VARCHAR(50) DEFAULT 'New',
+      follow_up DATE,
+      notes TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    ALTER TABLE leads
+    ADD COLUMN IF NOT EXISTS phone VARCHAR(50)
+  `);
+
+  await pool.query(`
+    ALTER TABLE leads
+    ADD COLUMN IF NOT EXISTS email VARCHAR(150)
+  `);
+
+  await pool.query(`
+    ALTER TABLE leads
+    ADD COLUMN IF NOT EXISTS source VARCHAR(100)
+  `);
+
+  await pool.query(`
+    ALTER TABLE leads
+    ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'New'
+  `);
+
+  await pool.query(`
+    ALTER TABLE leads
+    ADD COLUMN IF NOT EXISTS follow_up DATE
+  `);
+
+  await pool.query(`
+    ALTER TABLE leads
+    ADD COLUMN IF NOT EXISTS notes TEXT
+  `);
+
+  await pool.query(`
+    ALTER TABLE leads
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()
+  `);
+
+  await pool.query(
+    `INSERT INTO users(username,password,role)
+     VALUES($1,$2,$3)
+     ON CONFLICT(username)
+     DO UPDATE SET password=EXCLUDED.password,
+                   role=EXCLUDED.role`,
+    ['admin', 'Admin@123', 'admin']
+  );
+
+  console.log('Database setup completed.');
 }
 
-app.get('/leads', requireLogin, async function(req, res) {
+/* LOGIN */
+
+app.get('/login', function(req, res) {
+
+  if (req.session.user) {
+    return res.redirect('/');
+  }
+
+  const error = req.query.error
+    ? '<div class="alert">Invalid username or password.</div>'
+    : '';
+
+  res.send(`
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CRM Login</title>
+
+<style>
+body{
+  margin:0;
+  background:#0b1020;
+  color:white;
+  font-family:Arial,sans-serif;
+}
+
+.login{
+  min-height:100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:20px;
+}
+
+.box{
+  width:100%;
+  max-width:400px;
+  background:#11182b;
+  border:1px solid #293550;
+  border-radius:18px;
+  padding:30px;
+}
+
+input{
+  width:100%;
+  box-sizing:border-box;
+  padding:12px;
+  margin:8px 0 15px;
+  background:#0c1325;
+  border:1px solid #303d59;
+  color:white;
+  border-radius:8px;
+}
+
+button{
+  width:100%;
+  padding:12px;
+  border:0;
+  border-radius:8px;
+  background:#3478f6;
+  color:white;
+  font-weight:bold;
+  cursor:pointer;
+}
+
+.alert{
+  background:#42202a;
+  border:1px solid #7c3342;
+  padding:12px;
+  border-radius:8px;
+  margin-bottom:15px;
+}
+</style>
+</head>
+
+<body>
+<div class="login">
+<div class="box">
+
+<h1>MyCRM</h1>
+<p>Admin Login</p>
+
+${error}
+
+<form method="POST" action="/login">
+
+<label>Username</label>
+<input name="username" required>
+
+<label>Password</label>
+<input name="password" type="password" required>
+
+<button type="submit">Login</button>
+
+</form>
+
+</div>
+</div>
+</body>
+</html>
+`);
+});
+
+app.post('/login', async function(req, res) {
+
   try {
+
+    const result = await pool.query(
+      'SELECT * FROM users WHERE username=$1 AND password=$2',
+      [req.body.username, req.body.password]
+    );
+
+    if (!result.rows[0]) {
+      return res.redirect('/login?error=1');
+    }
+
+    const user = result.rows[0];
+
+    req.session.regenerate(function(err) {
+
+      if (err) {
+        console.error('Session regenerate error:', err);
+        return res.redirect('/login?error=1');
+      }
+
+      req.session.user = {
+        id: user.id,
+        username: user.username,
+        role: user.role
+      };
+
+      req.session.save(function(err) {
+
+        if (err) {
+          console.error('Session save error:', err);
+          return res.redirect('/login?error=1');
+        }
+
+        res.redirect('/');
+      });
+    });
+
+  } catch (err) {
+
+    console.error('Login error:', err);
+    res.redirect('/login?error=1');
+  }
+});
+
+app.get('/logout', function(req, res) {
+
+  req.session.destroy(function() {
+    res.redirect('/login');
+  });
+
+});
+
+/* DASHBOARD */
+
+app.get('/', requireLogin, async function(req, res) {
+
+  try {
+
+    const customers = await pool.query(
+      'SELECT COUNT(*)::int AS count FROM customers'
+    );
+
+    const leads = await pool.query(
+      'SELECT COUNT(*)::int AS count FROM leads'
+    );
+
+    const newLeads = await pool.query(
+      `SELECT COUNT(*)::int AS count
+       FROM leads
+       WHERE status='New'`
+    );
+
+    const converted = await pool.query(
+      `SELECT COUNT(*)::int AS count
+       FROM leads
+       WHERE status='Converted'`
+    );
+
+    const interested = await pool.query(
+      `SELECT COUNT(*)::int AS count
+       FROM leads
+       WHERE status='Interested'`
+    );
+
+    const followups = await pool.query(
+      `SELECT COUNT(*)::int AS count
+       FROM leads
+       WHERE follow_up IS NOT NULL
+       AND follow_up <= CURRENT_DATE
+       AND status NOT IN ('Converted','Lost')`
+    );
+
+    const recent = await pool.query(`
+      SELECT id,name,phone,source,status,follow_up,created_at
+      FROM leads
+      ORDER BY created_at DESC
+      LIMIT 8
+    `);
+
+    const sourceData = await pool.query(`
+      SELECT
+        COALESCE(NULLIF(source,''),'Unknown') AS source,
+        COUNT(*)::int AS count
+      FROM leads
+      GROUP BY 1
+      ORDER BY count DESC
+    `);
+
+    let recentRows = '';
+
+    recent.rows.forEach(function(row) {
+
+      recentRows += `
+      <tr>
+        <td>${esc(row.name)}</td>
+        <td>${esc(row.phone)}</td>
+        <td><span class="badge">${esc(row.source || 'Unknown')}</span></td>
+        <td><span class="badge">${esc(row.status || 'New')}</span></td>
+        <td>${row.follow_up ? esc(row.follow_up.toISOString().slice(0,10)) : '-'}</td>
+      </tr>
+      `;
+    });
+
+    if (!recentRows) {
+      recentRows =
+        '<tr><td colspan="5" class="muted">No leads yet.</td></tr>';
+    }
+
+    let sourceRows = '';
+
+    const totalLeads = leads.rows[0].count;
+
+    sourceData.rows.forEach(function(row) {
+
+      const percentage = totalLeads > 0
+        ? Math.round((row.count / totalLeads) * 100)
+        : 0;
+
+      sourceRows += `
+      <div style="margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:5px">
+          <span>${esc(row.source)}</span>
+          <span class="muted">${row.count}</span>
+        </div>
+        <div class="bar">
+          <span style="width:${percentage}%"></span>
+        </div>
+      </div>
+      `;
+    });
+
+    if (!sourceRows) {
+      sourceRows = '<div class="muted">No source data yet.</div>';
+    }
+
+    const content = `
+
+<div class="grid">
+
+<div class="card">
+<div class="muted">Customers</div>
+<div class="stat">${customers.rows[0].count}</div>
+</div>
+
+<div class="card">
+<div class="muted">Total Leads</div>
+<div class="stat">${leads.rows[0].count}</div>
+</div>
+
+<div class="card">
+<div class="muted">New Leads</div>
+<div class="stat">${newLeads.rows[0].count}</div>
+</div>
+
+<div class="card">
+<div class="muted">Converted</div>
+<div class="stat">${converted.rows[0].count}</div>
+</div>
+
+</div>
+
+<div class="grid" style="margin-top:15px">
+
+<div class="card">
+<div class="muted">Interested</div>
+<div class="stat">${interested.rows[0].count}</div>
+</div>
+
+<div class="card">
+<div class="muted">Pending Follow-ups</div>
+<div class="stat">${followups.rows[0].count}</div>
+</div>
+
+</div>
+
+<div class="card">
+<h2>Quick Actions</h2>
+
+<div class="quick">
+
+<a href="/customers?add=1">
+<strong>+ Add Customer</strong>
+<br>
+<span class="muted">Create a new customer</span>
+</a>
+
+<a href="/leads?add=1">
+<strong>+ Add Lead</strong>
+<br>
+<span class="muted">Create a new lead</span>
+</a>
+
+<a href="/followups">
+<strong>Follow-ups</strong>
+<br>
+<span class="muted">Check scheduled follow-ups</span>
+</a>
+
+</div>
+</div>
+
+<div class="grid-2">
+
+<div class="card">
+<h2>Lead Sources</h2>
+${sourceRows}
+</div>
+
+<div class="card">
+<h2>Recent Leads</h2>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Phone</th>
+<th>Source</th>
+<th>Status</th>
+<th>Follow-up</th>
+</tr>
+</thead>
+
+<tbody>
+${recentRows}
+</tbody>
+</table>
+</div>
+
+</div>
+
+</div>
+`;
+
+    res.send(
+      page(
+        'Dashboard',
+        content,
+        'dashboard',
+        req.session.user.username
+      )
+    );
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send(
+      'Dashboard error: ' + esc(err.message)
+    );
+  }
+
+});
+
+/* CUSTOMERS */
+
+app.get('/customers', requireLogin, async function(req, res) {
+
+  try {
+
+    const search = String(req.query.search || '').trim();
+
+    let result;
+
+    if (search) {
+
+      result = await pool.query(
+        `SELECT *
+         FROM customers
+         WHERE name ILIKE $1
+         OR phone ILIKE $1
+         OR email ILIKE $1
+         ORDER BY created_at DESC`,
+        ['%' + search + '%']
+      );
+
+    } else {
+
+      result = await pool.query(
+        `SELECT *
+         FROM customers
+         ORDER BY created_at DESC`
+      );
+    }
+
+    const editId = req.query.edit
+      ? Number(req.query.edit)
+      : null;
+
+    let editCustomer = null;
+
+    if (editId) {
+
+      const editResult = await pool.query(
+        'SELECT * FROM customers WHERE id=$1',
+        [editId]
+      );
+
+      editCustomer = editResult.rows[0] || null;
+    }
+
+    let rows = '';
+
+    result.rows.forEach(function(customer) {
+
+      rows += `
+      <tr>
+        <td>${esc(customer.name)}</td>
+        <td>${esc(customer.phone)}</td>
+        <td>${esc(customer.email)}</td>
+        <td>${esc(customer.address)}</td>
+        <td>
+          <div class="actions">
+            <a class="btn btn-gray" href="/customers?edit=${customer.id}">
+              Edit
+            </a>
+
+            <form method="POST"
+                  action="/customers/delete/${customer.id}"
+                  onsubmit="return confirm('Delete this customer?')">
+
+              <button class="btn btn-danger" type="submit">
+                Delete
+              </button>
+
+            </form>
+          </div>
+        </td>
+      </tr>
+      `;
+    });
+
+    if (!rows) {
+      rows =
+        '<tr><td colspan="5" class="muted">No customers found.</td></tr>';
+    }
+
+    let form = '';
+
+    if (editCustomer) {
+
+      form = `
+      <div class="card">
+      <h2>Edit Customer</h2>
+
+      <form method="POST"
+            action="/customers/edit/${editCustomer.id}">
+
+      <div class="form-grid">
+
+      <div class="form-group">
+      <label>Name</label>
+      <input name="name" required value="${esc(editCustomer.name)}">
+      </div>
+
+      <div class="form-group">
+      <label>Phone</label>
+      <input name="phone" value="${esc(editCustomer.phone)}">
+      </div>
+
+      <div class="form-group">
+      <label>Email</label>
+      <input name="email" type="email" value="${esc(editCustomer.email)}">
+      </div>
+
+      <div class="form-group">
+      <label>Address</label>
+      <input name="address" value="${esc(editCustomer.address)}">
+      </div>
+
+      </div>
+
+      <button class="btn" type="submit">Update Customer</button>
+      <a class="btn btn-gray" href="/customers">Cancel</a>
+
+      </form>
+      </div>
+      `;
+
+    } else if (req.query.add) {
+
+      form = `
+      <div class="card">
+      <h2>Add Customer</h2>
+
+      <form method="POST" action="/customers/add">
+
+      <div class="form-grid">
+
+      <div class="form-group">
+      <label>Name</label>
+      <input name="name" required>
+      </div>
+
+      <div class="form-group">
+      <label>Phone</label>
+      <input name="phone">
+      </div>
+
+      <div class="form-group">
+      <label>Email</label>
+      <input name="email" type="email">
+      </div>
+
+      <div class="form-group">
+      <label>Address</label>
+      <input name="address">
+      </div>
+
+      </div>
+
+      <button class="btn" type="submit">
+        Save Customer
+      </button>
+
+      </form>
+      </div>
+      `;
+    }
+
+    const content = `
+
+<div class="card">
+
+<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+
+<form method="GET" action="/customers" style="display:flex;gap:8px;flex:1">
+
+<input
+name="search"
+placeholder="Search name, phone or email..."
+value="${esc(search)}">
+
+<button class="btn" type="submit">Search</button>
+
+</form>
+
+<a class="btn" href="/customers?add=1">
++ Add Customer
+</a>
+
+</div>
+
+</div>
+
+${form}
+
+<div class="card">
+
+<h2>Customers</h2>
+
+<div class="table-wrap">
+
+<table>
+
+<thead>
+<tr>
+<th>Name</th>
+<th>Phone</th>
+<th>Email</th>
+<th>Address</th>
+<th>Actions</th>
+</tr>
+</thead>
+
+<tbody>
+${rows}
+</tbody>
+
+</table>
+
+</div>
+</div>
+`;
+
+    res.send(
+      page(
+        'Customers',
+        content,
+        'customers',
+        req.session.user.username
+      )
+    );
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send(
+      'Customers error: ' + esc(err.message)
+    );
+  }
+
+});
+
+app.post('/customers/add', requireLogin, async function(req, res) {
+
+  try {
+
+    const name = String(req.body.name || '').trim();
+
+    if (!name) {
+      return res.redirect('/customers?add=1');
+    }
+
+    await pool.query(
+      `INSERT INTO customers
+       (name,phone,email,address)
+       VALUES($1,$2,$3,$4)`,
+      [
+        name,
+        req.body.phone || '',
+        req.body.email || '',
+        req.body.address || ''
+      ]
+    );
+
+    res.redirect('/customers');
+
+  } catch (err) {
+
+    console.error(err);
+    res.status(500).send('Add customer error: ' + esc(err.message));
+  }
+
+});
+
+app.post('/customers/edit/:id', requireLogin, async function(req, res) {
+
+  try {
+
+    await pool.query(
+      `UPDATE customers
+       SET name=$1,
+           phone=$2,
+           email=$3,
+           address=$4
+       WHERE id=$5`,
+      [
+        req.body.name || '',
+        req.body.phone || '',
+        req.body.email || '',
+        req.body.address || '',
+        Number(req.params.id)
+      ]
+    );
+
+    res.redirect('/customers');
+
+  } catch (err) {
+
+    console.error(err);
+    res.status(500).send('Edit customer error: ' + esc(err.message));
+  }
+
+});
+
+app.post('/customers/delete/:id', requireLogin, async function(req, res) {
+
+  try {
+
+    await pool.query(
+      'DELETE FROM customers WHERE id=$1',
+      [Number(req.params.id)]
+    );
+
+    res.redirect('/customers');
+
+  } catch (err) {
+
+    console.error(err);
+    res.status(500).send('Delete customer error: ' + esc(err.message));
+  }
+
+});
+
+/* LEADS */
+
+app.get('/leads', requireLogin, async function(req, res) {
+
+  try {
+
     const search = String(req.query.search || '').trim();
     const status = String(req.query.status || '').trim();
     const source = String(req.query.source || '').trim();
 
-    let sql = 'SELECT * FROM leads';
-    const vals = [];
-    const where = [];
+    let conditions = [];
+    let params = [];
 
     if (search) {
-      vals.push('%' + search + '%');
 
-      where.push(
-        '(name ILIKE $' +
-        vals.length +
-        ' OR phone ILIKE $' +
-        vals.length +
-        ' OR email ILIKE $' +
-        vals.length +
-        ')'
+      params.push('%' + search + '%');
+
+      conditions.push(
+        `(name ILIKE $${params.length}
+          OR phone ILIKE $${params.length}
+          OR email ILIKE $${params.length})`
       );
     }
 
     if (status) {
-      vals.push(status);
-      where.push('status=$' + vals.length);
+
+      params.push(status);
+
+      conditions.push(
+        `status=$${params.length}`
+      );
     }
 
     if (source) {
-      vals.push(source);
-      where.push('source=$' + vals.length);
+
+      params.push(source);
+
+      conditions.push(
+        `source=$${params.length}`
+      );
     }
 
-    if (where.length) {
-      sql += ' WHERE ' + where.join(' AND ');
+    let query = `
+      SELECT *
+      FROM leads
+    `;
+
+    if (conditions.length) {
+      query += ' WHERE ' + conditions.join(' AND ');
     }
 
-    sql += ' ORDER BY id DESC';
+    query += ' ORDER BY created_at DESC';
 
-    const result = await pool.query(sql, vals);
+    const result = await pool.query(query, params);
 
     const editId = req.query.edit
       ? Number(req.query.edit)
-      : 0;
+      : null;
 
-    let edit = null;
+    let editLead = null;
 
     if (editId) {
-      const er = await pool.query(
+
+      const editResult = await pool.query(
         'SELECT * FROM leads WHERE id=$1',
         [editId]
       );
 
-      edit = er.rows[0] || null;
+      editLead = editResult.rows[0] || null;
     }
 
-    const form =
-      '<div class="panel">' +
-      '<h2>' +
-      (edit ? 'Edit Lead' : 'Add Lead') +
-      '</h2>' +
+    let rows = '';
 
-      '<form method="post" action="' +
-      (edit
-        ? '/leads/edit/' + edit.id
-        : '/leads/add') +
-      '">' +
+    result.rows.forEach(function(lead) {
 
-      '<div class="formgrid three">' +
+      const date = lead.follow_up
+        ? new Date(lead.follow_up).toISOString().slice(0,10)
+        : '-';
 
-      '<div>' +
-      '<label>Name</label>' +
-      '<input name="name" value="' +
-      esc(edit ? edit.name : '') +
-      '" required>' +
-      '</div>' +
+      rows += `
+      <tr>
 
-      '<div>' +
-      '<label>Phone</label>' +
-      '<input name="phone" value="' +
-      esc(edit ? edit.phone : '') +
-      '">' +
-      '</div>' +
+      <td>
+        <strong>${esc(lead.name)}</strong>
+        <br>
+        <span class="muted">${esc(lead.email)}</span>
+      </td>
 
-      '<div>' +
-      '<label>Email</label>' +
-      '<input type="email" name="email" value="' +
-      esc(edit ? edit.email : '') +
-      '">' +
-      '</div>' +
+      <td>${esc(lead.phone)}</td>
 
-      '<div>' +
-      '<label>Source</label>' +
-      '<select name="source">' +
-      '<option value="">Select source</option>' +
-      options(sourceOptions, edit ? edit.source : '') +
-      '</select>' +
-      '</div>' +
+      <td>
+        <span class="badge">
+          ${esc(lead.source || 'Other')}
+        </span>
+      </td>
 
-      '<div>' +
-      '<label>Status</label>' +
-      '<select name="status">' +
-      options(statusOptions, edit ? edit.status : 'New') +
-      '</select>' +
-      '</div>' +
+      <td>
+        <span class="badge">
+          ${esc(lead.status || 'New')}
+        </span>
+      </td>
 
-      '<div>' +
-      '<label>Follow-up date</label>' +
-      '<input type="date" name="follow_up" value="' +
-      esc(edit ? edit.follow_up : '') +
-      '">' +
-      '</div>' +
+      <td>${esc(date)}</td>
 
-      '</div><br>' +
+      <td>
 
-      '<div>' +
-      '<label>Notes</label>' +
-      '<textarea name="notes" placeholder="Lead notes...">' +
-      esc(edit ? edit.notes : '') +
-      '</textarea>' +
-      '</div>' +
+      <div class="actions">
 
-      '<br>' +
+      <a class="btn btn-gray"
+         href="/leads?edit=${lead.id}">
+         Edit
+      </a>
 
-      '<div class="actions">' +
-      '<button class="btn">' +
-      (edit ? 'Update Lead' : 'Save Lead') +
-      '</button>' +
+      <form method="POST"
+            action="/leads/delete/${lead.id}"
+            onsubmit="return confirm('Delete this lead?')">
 
-      (edit
-        ? '<a class="btn secondary" href="/leads">Cancel</a>'
-        : '') +
+        <button class="btn btn-danger" type="submit">
+          Delete
+        </button>
 
-      '</div>' +
+      </form>
 
-      '</form>' +
-      '</div>';
+      </div>
 
-    const rows = result.rows.map(function(l) {
-      const cls =
-        l.status === 'Converted'
-          ? 'green'
-          : l.status === 'Lost'
-          ? 'red'
-          : l.status === 'Follow-up'
-          ? 'yellow'
-          : '';
+      </td>
 
-      return '<tr>' +
-        '<td>' + esc(l.name) + '</td>' +
-        '<td>' + esc(l.phone) + '</td>' +
-        '<td>' + esc(l.source) + '</td>' +
-        '<td><span class="pill ' +
-        cls +
-        '">' +
-        esc(l.status) +
-        '</span></td>' +
-        '<td>' +
-        esc(l.follow_up || '-') +
-        '</td>' +
-        '<td>' +
-        esc(l.notes || '-') +
-        '</td>' +
-        '<td>' +
-        '<div class="actions">' +
+      </tr>
+      `;
+    });
 
-        '<a class="btn secondary" href="/leads?edit=' +
-        l.id +
-        '">Edit</a>' +
+    if (!rows) {
+      rows =
+        '<tr><td colspan="6" class="muted">No leads found.</td></tr>';
+    }
 
-        '<form method="post" action="/leads/delete/' +
-        l.id +
-        '" onsubmit="return confirm(\'Delete this lead?\')">' +
-        '<button class="btn danger">Delete</button>' +
-        '</form>' +
+    let form = '';
 
-        '</div>' +
-        '</td>' +
-        '</tr>';
-    }).join('');
+    if (editLead) {
 
-    const filters =
-      '<form class="searchbar" method="get">' +
+      let sourceHtml = '';
 
-      '<input name="search" placeholder="Search lead" value="' +
-      esc(search) +
-      '">' +
+      sourceOptions.forEach(function(option) {
 
-      '<select name="source">' +
-      '<option value="">All sources</option>' +
-      options(sourceOptions, source) +
-      '</select>' +
+        sourceHtml += `
+        <option value="${esc(option)}"
+        ${selected(editLead.source, option)}>
+        ${esc(option)}
+        </option>
+        `;
+      });
 
-      '<select name="status">' +
-      '<option value="">All status</option>' +
-      options(statusOptions, status) +
-      '</select>' +
+      let statusHtml = '';
 
-      '<button class="btn">Filter</button>' +
+      statusOptions.forEach(function(option) {
 
-      '<a class="btn secondary" href="/leads">Clear</a>' +
+        statusHtml += `
+        <option value="${esc(option)}"
+        ${selected(editLead.status, option)}>
+        ${esc(option)}
+        </option>
+        `;
+      });
 
-      '</form>';
+      const followDate = editLead.follow_up
+        ? new Date(editLead.follow_up).toISOString().slice(0,10)
+        : '';
+
+      form = `
+      <div class="card">
+
+      <h2>Edit Lead</h2>
+
+      <form method="POST"
+            action="/leads/edit/${editLead.id}">
+
+      <div class="form-grid">
+
+      <div class="form-group">
+      <label>Name</label>
+      <input name="name"
+             required
+             value="${esc(editLead.name)}">
+      </div>
+
+      <div class="form-group">
+      <label>Phone</label>
+      <input name="phone"
+             value="${esc(editLead.phone)}">
+      </div>
+
+      <div class="form-group">
+      <label>Email</label>
+      <input name="email"
+             type="email"
+             value="${esc(editLead.email)}">
+      </div>
+
+      <div class="form-group">
+      <label>Source</label>
+      <select name="source">
+      ${sourceHtml}
+      </select>
+      </div>
+
+      <div class="form-group">
+      <label>Status</label>
+      <select name="status">
+      ${statusHtml}
+      </select>
+      </div>
+
+      <div class="form-group">
+      <label>Follow-up Date</label>
+      <input name="follow_up"
+             type="date"
+             value="${esc(followDate)}">
+      </div>
+
+      </div>
+
+      <div class="form-group">
+      <label>Notes</label>
+      <textarea name="notes">${esc(editLead.notes)}</textarea>
+      </div>
+
+      <button class="btn" type="submit">
+      Update Lead
+      </button>
+
+      <a class="btn btn-gray"
+         href="/leads">
+      Cancel
+      </a>
+
+      </form>
+
+      </div>
+      `;
+
+    } else if (req.query.add) {
+
+      let sourceHtml = '';
+
+      sourceOptions.forEach(function(option) {
+
+        sourceHtml += `
+        <option value="${esc(option)}">
+        ${esc(option)}
+        </option>
+        `;
+      });
+
+      let statusHtml = '';
+
+      statusOptions.forEach(function(option) {
+
+        statusHtml += `
+        <option value="${esc(option)}">
+        ${esc(option)}
+        </option>
+        `;
+      });
+
+      form = `
+      <div class="card">
+
+      <h2>Add Lead</h2>
+
+      <form method="POST"
+            action="/leads/add">
+
+      <div class="form-grid">
+
+      <div class="form-group">
+      <label>Name</label>
+      <input name="name" required>
+      </div>
+
+      <div class="form-group">
+      <label>Phone</label>
+      <input name="phone">
+      </div>
+
+      <div class="form-group">
+      <label>Email</label>
+      <input name="email" type="email">
+      </div>
+
+      <div class="form-group">
+      <label>Source</label>
+      <select name="source">
+      ${sourceHtml}
+      </select>
+      </div>
+
+      <div class="form-group">
+      <label>Status</label>
+      <select name="status">
+      ${statusHtml}
+      </select>
+      </div>
+
+      <div class="form-group">
+      <label>Follow-up Date</label>
+      <input name="follow_up" type="date">
+      </div>
+
+      </div>
+
+      <div class="form-group">
+      <label>Notes</label>
+      <textarea name="notes"></textarea>
+      </div>
+
+      <button class="btn" type="submit">
+      Save Lead
+      </button>
+
+      </form>
+
+      </div>
+      `;
+    }
+
+    let sourceFilter = '';
+
+    sourceOptions.forEach(function(option) {
+
+      sourceFilter += `
+      <option value="${esc(option)}"
+      ${selected(source, option)}>
+      ${esc(option)}
+      </option>
+      `;
+    });
+
+    let statusFilter = '';
+
+    statusOptions.forEach(function(option) {
+
+      statusFilter += `
+      <option value="${esc(option)}"
+      ${selected(status, option)}>
+      ${esc(option)}
+      </option>
+      `;
+    });
+
+    const content = `
+
+<div class="card">
+
+<form method="GET"
+      action="/leads">
+
+<div class="search-row">
+
+<input name="search"
+       placeholder="Search lead..."
+       value="${esc(search)}">
+
+<select name="status">
+<option value="">All Status</option>
+${statusFilter}
+</select>
+
+<select name="source">
+<option value="">All Sources</option>
+${sourceFilter}
+</select>
+
+<button class="btn" type="submit">
+Filter
+</button>
+
+</div>
+
+</form>
+
+<a class="btn" href="/leads?add=1">
++ Add Lead
+</a>
+
+</div>
+
+${form}
+
+<div class="card">
+
+<h2>Leads</h2>
+
+<div class="table-wrap">
+
+<table>
+
+<thead>
+
+<tr>
+<th>Lead</th>
+<th>Phone</th>
+<th>Source</th>
+<th>Status</th>
+<th>Follow-up</th>
+<th>Actions</th>
+</tr>
+
+</thead>
+
+<tbody>
+${rows}
+</tbody>
+
+</table>
+
+</div>
+
+</div>
+`;
 
     res.send(
       page(
         'Leads',
-        form +
-        '<div class="panel">' +
-        '<h2>Lead Management</h2>' +
-        filters +
-        '<div class="tablewrap">' +
-        '<table class="table">' +
-
-        '<thead><tr>' +
-        '<th>Name</th>' +
-        '<th>Phone</th>' +
-        '<th>Source</th>' +
-        '<th>Status</th>' +
-        '<th>Follow-up</th>' +
-        '<th>Notes</th>' +
-        '<th>Actions</th>' +
-        '</tr></thead>' +
-
-        '<tbody>' +
-        (rows ||
-          '<tr><td colspan="7" class="empty">No leads found</td></tr>') +
-        '</tbody>' +
-
-        '</table>' +
-        '</div>' +
-        '</div>',
-        'leads'
+        content,
+        'leads',
+        req.session.user.username
       )
     );
+
   } catch (err) {
+
     console.error(err);
-    res.status(500).send('Lead error: ' + esc(err.message));
+
+    res.status(500).send(
+      'Leads error: ' + esc(err.message)
+    );
   }
+
 });
 
 app.post('/leads/add', requireLogin, async function(req, res) {
-  if (!String(req.body.name || '').trim()) {
-    return res.status(400).send('Lead name required');
-  }
 
-  await pool.query(
-    `INSERT INTO leads
-     (name,phone,email,source,status,follow_up,notes)
-     VALUES($1,$2,$3,$4,$5,$6,$7)`,
-    [
-      req.body.name,
-      req.body.phone,
-      req.body.email,
-      req.body.source,
-      req.body.status || 'New',
-      req.body.follow_up || null,
-      req.body.notes
-    ]
-  );
-
-  res.redirect('/leads');
-});
-
-app.post('/leads/edit/:id', requireLogin, async function(req, res) {
-  await pool.query(
-    `UPDATE leads
-     SET name=$1,
-         phone=$2,
-         email=$3,
-         source=$4,
-         status=$5,
-         follow_up=$6,
-         notes=$7
-     WHERE id=$8`,
-    [
-      req.body.name,
-      req.body.phone,
-      req.body.email,
-      req.body.source,
-      req.body.status,
-      req.body.follow_up || null,
-      req.body.notes,
-      req.params.id
-    ]
-  );
-
-  res.redirect('/leads');
-});
-
-app.post('/leads/delete/:id', requireLogin, async function(req, res) {
-  await pool.query(
-    'DELETE FROM leads WHERE id=$1',
-    [req.params.id]
-  );
-
-  res.redirect('/leads');
-});
-
-app.get('/followups', requireLogin, async function(req, res) {
-  const result = await pool.query(
-    `SELECT * FROM leads
-     WHERE follow_up IS NOT NULL
-     ORDER BY follow_up ASC, id DESC`
-  );
-
-  const today =
-    new Date().toISOString().slice(0, 10);
-
-  const rows = result.rows.map(function(l) {
-    const overdue =
-      String(l.follow_up).slice(0, 10) < today &&
-      !['Converted', 'Lost'].includes(l.status);
-
-    return '<tr>' +
-      '<td>' + esc(l.name) + '</td>' +
-      '<td>' + esc(l.phone) + '</td>' +
-      '<td>' + esc(l.follow_up) + '</td>' +
-      '<td><span class="pill ' +
-      (overdue ? 'red' : 'yellow') +
-      '">' +
-      (overdue ? 'Overdue' : 'Scheduled') +
-      '</span></td>' +
-      '<td>' + esc(l.status) + '</td>' +
-      '<td><a class="btn secondary" href="/leads?edit=' +
-      l.id +
-      '">Open Lead</a></td>' +
-      '</tr>';
-  }).join('');
-
-  res.send(
-    page(
-      'Follow-ups',
-      '<div class="panel">' +
-      '<h2>Follow-up Schedule</h2>' +
-      '<p class="muted">Track scheduled and overdue lead follow-ups.</p>' +
-      '<div class="tablewrap">' +
-      '<table class="table">' +
-      '<thead><tr>' +
-      '<th>Lead</th>' +
-      '<th>Phone</th>' +
-      '<th>Date</th>' +
-      '<th>State</th>' +
-      '<th>Status</th>' +
-      '<th>Action</th>' +
-      '</tr></thead>' +
-      '<tbody>' +
-      (rows ||
-        '<tr><td colspan="6" class="empty">No follow-ups yet</td></tr>') +
-      '</tbody>' +
-      '</table>' +
-      '</div>' +
-      '</div>',
-      'followups'
-    )
-  );
-});
-
-app.get('/staff', requireLogin, async function(req, res) {
-  const result = await pool.query(
-    'SELECT id,username,role,created_at FROM users ORDER BY id'
-  );
-
-  const rows = result.rows.map(function(u) {
-    return '<tr>' +
-      '<td>' + esc(u.username) + '</td>' +
-      '<td>' + esc(u.role) + '</td>' +
-      '<td>' + esc(u.created_at) + '</td>' +
-      '</tr>';
-  }).join('');
-
-  res.send(
-    page(
-      'Staff',
-      '<div class="grid2">' +
-
-      '<div class="panel">' +
-      '<h2>Add Staff</h2>' +
-      '<form method="post" action="/staff/add">' +
-
-      '<div class="formgrid">' +
-
-      '<div>' +
-      '<label>Username</label>' +
-      '<input name="username" required>' +
-      '</div>' +
-
-      '<div>' +
-      '<label>Password</label>' +
-      '<input name="password" type="password" required>' +
-      '</div>' +
-
-      '</div><br>' +
-
-      '<button class="btn">Add Staff</button>' +
-
-      '</form>' +
-      '</div>' +
-
-      '<div class="panel">' +
-      '<h2>Team</h2>' +
-      '<div class="tablewrap">' +
-      '<table class="table">' +
-      '<thead><tr>' +
-      '<th>Username</th>' +
-      '<th>Role</th>' +
-      '<th>Created</th>' +
-      '</tr></thead>' +
-      '<tbody>' +
-      rows +
-      '</tbody>' +
-      '</table>' +
-      '</div>' +
-      '</div>' +
-
-      '</div>',
-      'staff'
-    )
-  );
-});
-
-app.post('/staff/add', requireLogin, async function(req, res) {
-  if (!req.body.username || !req.body.password) {
-    return res.status(400).send(
-      'Username and password required'
-    );
-  }
-
-  await pool.query(
-    'INSERT INTO users(username,password,role) VALUES($1,$2,$3)',
-    [
-      req.body.username,
-      req.body.password,
-      'staff'
-    ]
-  );
-
-  res.redirect('/staff');
-});
-
-app.get('/api-info', requireLogin, function(req, res) {
-  const content =
-    '<div class="panel">' +
-    '<h2>CRM API</h2>' +
-    '<p class="muted">' +
-    'Use these endpoints later for website, ads and WhatsApp integrations.' +
-    '</p>' +
-
-    '<div class="notice">' +
-    '<b>GET /api/customers</b><br>' +
-    'Returns customers.' +
-    '</div>' +
-
-    '<div class="notice">' +
-    '<b>GET /api/leads</b><br>' +
-    'Returns leads.' +
-    '</div>' +
-
-    '<div class="notice">' +
-    '<b>POST /api/leads</b><br>' +
-    'Creates a new lead using JSON.' +
-    '</div>' +
-
-    '<div class="notice">' +
-    '<b>GET /health</b><br>' +
-    'Checks API status.' +
-    '</div>' +
-
-    '</div>';
-
-  res.send(page('API', content, 'api'));
-});
-
-app.get('/api/customers', async function(req, res) {
   try {
-    const r =
-      await pool.query(
-        'SELECT * FROM customers ORDER BY id DESC'
-      );
 
-    res.json(r.rows);
-  } catch (e) {
-    res.status(500).json({
-      error: e.message
-    });
-  }
-});
+    const name = String(req.body.name || '').trim();
 
-app.get('/api/leads', async function(req, res) {
-  try {
-    const r =
-      await pool.query(
-        'SELECT * FROM leads ORDER BY id DESC'
-      );
-
-    res.json(r.rows);
-  } catch (e) {
-    res.status(500).json({
-      error: e.message
-    });
-  }
-});
-
-app.post('/api/leads', async function(req, res) {
-  try {
-    if (!req.body.name) {
-      return res.status(400).json({
-        error: 'name is required'
-      });
+    if (!name) {
+      return res.redirect('/leads?add=1');
     }
 
-    const r = await pool.query(
+    await pool.query(
       `INSERT INTO leads
        (name,phone,email,source,status,follow_up,notes)
-       VALUES($1,$2,$3,$4,$5,$6,$7)
-       RETURNING *`,
+       VALUES($1,$2,$3,$4,$5,$6,$7)`,
       [
-        req.body.name,
+        name,
         req.body.phone || '',
         req.body.email || '',
-        req.body.source || 'API',
+        req.body.source || 'Other',
         req.body.status || 'New',
         req.body.follow_up || null,
         req.body.notes || ''
       ]
     );
 
-    res.status(201).json(r.rows[0]);
-  } catch (e) {
+    res.redirect('/leads');
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send(
+      'Add lead error: ' + esc(err.message)
+    );
+  }
+
+});
+
+app.post('/leads/edit/:id', requireLogin, async function(req, res) {
+
+  try {
+
+    await pool.query(
+      `UPDATE leads
+       SET name=$1,
+           phone=$2,
+           email=$3,
+           source=$4,
+           status=$5,
+           follow_up=$6,
+           notes=$7
+       WHERE id=$8`,
+      [
+        req.body.name || '',
+        req.body.phone || '',
+        req.body.email || '',
+        req.body.source || 'Other',
+        req.body.status || 'New',
+        req.body.follow_up || null,
+        req.body.notes || '',
+        Number(req.params.id)
+      ]
+    );
+
+    res.redirect('/leads');
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send(
+      'Edit lead error: ' + esc(err.message)
+    );
+  }
+
+});
+
+app.post('/leads/delete/:id', requireLogin, async function(req, res) {
+
+  try {
+
+    await pool.query(
+      'DELETE FROM leads WHERE id=$1',
+      [Number(req.params.id)]
+    );
+
+    res.redirect('/leads');
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send(
+      'Delete lead error: ' + esc(err.message)
+    );
+  }
+
+});
+
+/* FOLLOW UPS */
+
+app.get('/followups', requireLogin, async function(req, res) {
+
+  try {
+
+    const result = await pool.query(`
+      SELECT *
+      FROM leads
+      WHERE follow_up IS NOT NULL
+      AND status NOT IN ('Converted','Lost')
+      ORDER BY follow_up ASC
+    `);
+
+    let rows = '';
+
+    result.rows.forEach(function(lead) {
+
+      const date = new Date(lead.follow_up)
+        .toISOString()
+        .slice(0,10);
+
+      const overdue =
+        new Date(lead.follow_up) < new Date();
+
+      rows += `
+      <tr>
+
+      <td>${esc(lead.name)}</td>
+
+      <td>${esc(lead.phone)}</td>
+
+      <td>${esc(lead.status)}</td>
+
+      <td>
+      <span class="badge">
+      ${esc(date)}
+      </span>
+      ${overdue ? '<span class="badge">Overdue</span>' : ''}
+      </td>
+
+      <td>
+      <a class="btn btn-gray"
+         href="/leads?edit=${lead.id}">
+      Open
+      </a>
+      </td>
+
+      </tr>
+      `;
+    });
+
+    if (!rows) {
+      rows =
+        '<tr><td colspan="5" class="muted">No follow-ups scheduled.</td></tr>';
+    }
+
+    const content = `
+
+<div class="card">
+
+<h2>Follow-up List</h2>
+
+<div class="table-wrap">
+
+<table>
+
+<thead>
+<tr>
+<th>Lead</th>
+<th>Phone</th>
+<th>Status</th>
+<th>Follow-up</th>
+<th>Action</th>
+</tr>
+</thead>
+
+<tbody>
+${rows}
+</tbody>
+
+</table>
+
+</div>
+
+</div>
+`;
+
+    res.send(
+      page(
+        'Follow-ups',
+        content,
+        'followups',
+        req.session.user.username
+      )
+    );
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send(
+      'Follow-ups error: ' + esc(err.message)
+    );
+  }
+
+});
+
+/* STAFF */
+
+app.get('/staff', requireAdmin, async function(req, res) {
+
+  try {
+
+    const result = await pool.query(`
+      SELECT id,username,role,created_at
+      FROM users
+      ORDER BY id ASC
+    `);
+
+    let rows = '';
+
+    result.rows.forEach(function(user) {
+
+      rows += `
+      <tr>
+        <td>${esc(user.username)}</td>
+        <td><span class="badge">${esc(user.role)}</span></td>
+        <td>${new Date(user.created_at).toISOString().slice(0,10)}</td>
+      </tr>
+      `;
+    });
+
+    const content = `
+
+<div class="grid-2">
+
+<div class="card">
+
+<h2>Add Staff</h2>
+
+<form method="POST" action="/staff/add">
+
+<div class="form-group">
+<label>Username</label>
+<input name="username" required>
+</div>
+
+<div class="form-group">
+<label>Password</label>
+<input name="password" type="password" required>
+</div>
+
+<div class="form-group">
+<label>Role</label>
+
+<select name="role">
+<option value="staff">Staff</option>
+<option value="admin">Admin</option>
+</select>
+
+</div>
+
+<button class="btn" type="submit">
+Add Staff
+</button>
+
+</form>
+
+</div>
+
+<div class="card">
+
+<h2>Users</h2>
+
+<div class="table-wrap">
+
+<table>
+
+<thead>
+<tr>
+<th>Username</th>
+<th>Role</th>
+<th>Created</th>
+</tr>
+</thead>
+
+<tbody>
+${rows}
+</tbody>
+
+</table>
+
+</div>
+
+</div>
+
+</div>
+`;
+
+    res.send(
+      page(
+        'Staff',
+        content,
+        'staff',
+        req.session.user.username
+      )
+    );
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send(
+      'Staff error: ' + esc(err.message)
+    );
+  }
+
+});
+
+app.post('/staff/add', requireAdmin, async function(req, res) {
+
+  try {
+
+    await pool.query(
+      `INSERT INTO users(username,password,role)
+       VALUES($1,$2,$3)`,
+      [
+        String(req.body.username || '').trim(),
+        String(req.body.password || ''),
+        req.body.role === 'admin' ? 'admin' : 'staff'
+      ]
+    );
+
+    res.redirect('/staff');
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send(
+      'Add staff error: ' + esc(err.message)
+    );
+  }
+
+});
+
+/* API INFO */
+
+app.get('/api-info', requireLogin, function(req, res) {
+
+  const content = `
+
+<div class="card">
+
+<h2>CRM API</h2>
+
+<p class="muted">
+These endpoints can later be connected with website,
+ads, WhatsApp Business API and other systems.
+</p>
+
+<h3>Health</h3>
+
+<pre>/health</pre>
+
+<h3>Customers</h3>
+
+<pre>GET /api/customers</pre>
+
+<h3>Leads</h3>
+
+<pre>GET /api/leads</pre>
+
+<pre>POST /api/leads</pre>
+
+<h3>Example Lead JSON</h3>
+
+<pre>{
+  "name": "Rahul",
+  "phone": "9876543210",
+  "email": "rahul@example.com",
+  "source": "WhatsApp",
+  "status": "New",
+  "follow_up": "2026-10-01",
+  "notes": "Interested in product"
+}</pre>
+
+</div>
+`;
+
+  res.send(
+    page(
+      'API',
+      content,
+      'api',
+      req.session.user.username
+    )
+  );
+
+});
+
+/* PUBLIC API */
+
+app.get('/health', async function(req, res) {
+
+  try {
+
+    await pool.query('SELECT 1');
+
+    res.json({
+      status: 'ok',
+      database: 'connected'
+    });
+
+  } catch (err) {
+
     res.status(500).json({
-      error: e.message
+      status: 'error',
+      database: 'disconnected'
     });
   }
+
 });
 
-app.get('/health', function(req, res) {
-  res.json({
-    status: 'ok',
-    service: 'CRM API'
-  });
+app.get('/api/customers', async function(req, res) {
+
+  try {
+
+    const result = await pool.query(`
+      SELECT *
+      FROM customers
+      ORDER BY created_at DESC
+    `);
+
+    res.json({
+      success: true,
+      count: result.rows.length,
+      customers: result.rows
+    });
+
+  } catch (err) {
+
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+
 });
+
+app.get('/api/leads', async function(req, res) {
+
+  try {
+
+    const result = await pool.query(`
+      SELECT *
+      FROM leads
+      ORDER BY created_at DESC
+    `);
+
+    res.json({
+      success: true,
+      count: result.rows.length,
+      leads: result.rows
+    });
+
+  } catch (err) {
+
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+
+});
+
+app.post('/api/leads', async function(req, res) {
+
+  try {
+
+    const name = String(req.body.name || '').trim();
+
+    if (!name) {
+
+      return res.status(400).json({
+        success: false,
+        error: 'name is required'
+      });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO leads
+       (name,phone,email,source,status,follow_up,notes)
+       VALUES($1,$2,$3,$4,$5,$6,$7)
+       RETURNING *`,
+      [
+        name,
+        req.body.phone || '',
+        req.body.email || '',
+        req.body.source || 'Other',
+        req.body.status || 'New',
+        req.body.follow_up || null,
+        req.body.notes || ''
+      ]
+    );
+
+    res.status(201).json({
+      success: true,
+      lead: result.rows[0]
+    });
+
+  } catch (err) {
+
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+
+});
+
+/* START */
 
 (async function start() {
+
   try {
+
     if (process.env.DATABASE_URL) {
       await setupDatabase();
     }
 
     app.listen(PORT, function() {
+
       console.log(
         'CRM API running on port ' + PORT
       );
+
     });
+
   } catch (err) {
+
     console.error(
       'Database setup failed:',
       err.message
@@ -1576,4 +2286,5 @@ app.get('/health', function(req, res) {
 
     process.exit(1);
   }
+
 })();
