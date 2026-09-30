@@ -755,225 +755,473 @@ app.get('/logout', function(req, res) {
 });
 
 /* DASHBOARD */
-
 app.get('/', requireLogin, async function(req, res) {
-
   try {
+    const [
+      customersResult,
+      leadsResult,
+      newResult,
+      contactedResult,
+      interestedResult,
+      followupResult,
+      convertedResult,
+      lostResult,
+      pendingFollowupsResult,
+      sourceResult,
+      recentLeadsResult
+    ] = await Promise.all([
+      pool.query('SELECT COUNT(*)::int AS count FROM customers'),
+      pool.query('SELECT COUNT(*)::int AS count FROM leads'),
+      pool.query("SELECT COUNT(*)::int AS count FROM leads WHERE status='New'"),
+      pool.query("SELECT COUNT(*)::int AS count FROM leads WHERE status='Contacted'"),
+      pool.query("SELECT COUNT(*)::int AS count FROM leads WHERE status='Interested'"),
+      pool.query("SELECT COUNT(*)::int AS count FROM leads WHERE status='Follow-up'"),
+      pool.query("SELECT COUNT(*)::int AS count FROM leads WHERE status='Converted'"),
+      pool.query("SELECT COUNT(*)::int AS count FROM leads WHERE status='Lost'"),
+      pool.query(`
+        SELECT COUNT(*)::int AS count
+        FROM leads
+        WHERE follow_up IS NOT NULL
+        AND follow_up >= CURRENT_DATE
+      `),
+      pool.query(`
+        SELECT COALESCE(source, 'Other') AS source, COUNT(*)::int AS count
+        FROM leads
+        GROUP BY source
+        ORDER BY count DESC
+      `),
+      pool.query(`
+        SELECT id, name, phone, source, status, follow_up, notes
+        FROM leads
+        ORDER BY id DESC
+        LIMIT 8
+      `)
+    ]);
 
-    const customers = await pool.query(
-      'SELECT COUNT(*)::int AS count FROM customers'
+    const totalCustomers = customersResult.rows[0].count;
+    const totalLeads = leadsResult.rows[0].count;
+    const newLeads = newResult.rows[0].count;
+    const contacted = contactedResult.rows[0].count;
+    const interested = interestedResult.rows[0].count;
+    const followups = followupResult.rows[0].count;
+    const converted = convertedResult.rows[0].count;
+    const lost = lostResult.rows[0].count;
+    const pendingFollowups = pendingFollowupsResult.rows[0].count;
+
+    const conversionRate =
+      totalLeads > 0
+        ? ((converted / totalLeads) * 100).toFixed(1)
+        : '0.0';
+
+    const maxSourceCount = Math.max(
+      1,
+      ...sourceResult.rows.map(row => Number(row.count))
     );
 
-    const leads = await pool.query(
-      'SELECT COUNT(*)::int AS count FROM leads'
-    );
+    const sourceBars = sourceResult.rows.map(row => {
+      const width = Math.round((Number(row.count) / maxSourceCount) * 100);
 
-    const newLeads = await pool.query(
-      `SELECT COUNT(*)::int AS count
-       FROM leads
-       WHERE status='New'`
-    );
+      return `
+        <div class="source-row">
+          <div class="source-top">
+            <span>${esc(row.source)}</span>
+            <strong>${row.count}</strong>
+          </div>
+          <div class="source-track">
+            <div class="source-fill" style="width:${width}%"></div>
+          </div>
+        </div>
+      `;
+    }).join('');
 
-    const converted = await pool.query(
-      `SELECT COUNT(*)::int AS count
-       FROM leads
-       WHERE status='Converted'`
-    );
-
-    const interested = await pool.query(
-      `SELECT COUNT(*)::int AS count
-       FROM leads
-       WHERE status='Interested'`
-    );
-
-    const followups = await pool.query(
-      `SELECT COUNT(*)::int AS count
-       FROM leads
-       WHERE follow_up IS NOT NULL
-       AND follow_up <= CURRENT_DATE
-       AND status NOT IN ('Converted','Lost')`
-    );
-
-    const recent = await pool.query(`
-      SELECT id,name,phone,source,status,follow_up,created_at
-      FROM leads
-      ORDER BY created_at DESC
-      LIMIT 8
-    `);
-
-    const sourceData = await pool.query(`
-      SELECT
-        COALESCE(NULLIF(source,''),'Unknown') AS source,
-        COUNT(*)::int AS count
-      FROM leads
-      GROUP BY 1
-      ORDER BY count DESC
-    `);
-
-    let recentRows = '';
-
-    recent.rows.forEach(function(row) {
-
-      recentRows += `
+    const recentLeads = recentLeadsResult.rows.map(lead => `
       <tr>
-        <td>${esc(row.name)}</td>
-        <td>${esc(row.phone)}</td>
-        <td><span class="badge">${esc(row.source || 'Unknown')}</span></td>
-        <td><span class="badge">${esc(row.status || 'New')}</span></td>
-        <td>${row.follow_up ? esc(row.follow_up.toISOString().slice(0,10)) : '-'}</td>
+        <td><strong>${esc(lead.name)}</strong></td>
+        <td>${esc(lead.phone || '-')}</td>
+        <td><span class="badge source">${esc(lead.source || 'Other')}</span></td>
+        <td><span class="badge status">${esc(lead.status || '-')}</span></td>
+        <td>${lead.follow_up ? esc(String(lead.follow_up).slice(0, 10)) : '-'}</td>
       </tr>
-      `;
-    });
-
-    if (!recentRows) {
-      recentRows =
-        '<tr><td colspan="5" class="muted">No leads yet.</td></tr>';
-    }
-
-    let sourceRows = '';
-
-    const totalLeads = leads.rows[0].count;
-
-    sourceData.rows.forEach(function(row) {
-
-      const percentage = totalLeads > 0
-        ? Math.round((row.count / totalLeads) * 100)
-        : 0;
-
-      sourceRows += `
-      <div style="margin-bottom:14px">
-        <div style="display:flex;justify-content:space-between;margin-bottom:5px">
-          <span>${esc(row.source)}</span>
-          <span class="muted">${row.count}</span>
-        </div>
-        <div class="bar">
-          <span style="width:${percentage}%"></span>
-        </div>
-      </div>
-      `;
-    });
-
-    if (!sourceRows) {
-      sourceRows = '<div class="muted">No source data yet.</div>';
-    }
+    `).join('');
 
     const content = `
+      <style>
+        .dash-head {
+          display:flex;
+          justify-content:space-between;
+          align-items:center;
+          gap:20px;
+          margin-bottom:24px;
+          flex-wrap:wrap;
+        }
 
-<div class="grid">
+        .dash-head h1 {
+          margin:0;
+          font-size:30px;
+        }
 
-<div class="card">
-<div class="muted">Customers</div>
-<div class="stat">${customers.rows[0].count}</div>
-</div>
+        .dash-head p {
+          margin:7px 0 0;
+          color:#94a3b8;
+        }
 
-<div class="card">
-<div class="muted">Total Leads</div>
-<div class="stat">${leads.rows[0].count}</div>
-</div>
+        .dash-actions {
+          display:flex;
+          gap:10px;
+          flex-wrap:wrap;
+        }
 
-<div class="card">
-<div class="muted">New Leads</div>
-<div class="stat">${newLeads.rows[0].count}</div>
-</div>
+        .dash-btn {
+          display:inline-block;
+          padding:11px 16px;
+          border-radius:10px;
+          text-decoration:none;
+          color:white;
+          background:#2563eb;
+          font-weight:700;
+        }
 
-<div class="card">
-<div class="muted">Converted</div>
-<div class="stat">${converted.rows[0].count}</div>
-</div>
+        .dash-btn.secondary {
+          background:#334155;
+        }
 
-</div>
+        .kpi-grid {
+          display:grid;
+          grid-template-columns:repeat(4, 1fr);
+          gap:16px;
+          margin-bottom:20px;
+        }
 
-<div class="grid" style="margin-top:15px">
+        .kpi {
+          background:#111827;
+          border:1px solid #1f2937;
+          border-radius:16px;
+          padding:20px;
+          box-shadow:0 10px 30px rgba(0,0,0,.15);
+        }
 
-<div class="card">
-<div class="muted">Interested</div>
-<div class="stat">${interested.rows[0].count}</div>
-</div>
+        .kpi-label {
+          color:#94a3b8;
+          font-size:14px;
+          margin-bottom:10px;
+        }
 
-<div class="card">
-<div class="muted">Pending Follow-ups</div>
-<div class="stat">${followups.rows[0].count}</div>
-</div>
+        .kpi-number {
+          font-size:30px;
+          font-weight:800;
+        }
 
-</div>
+        .kpi-small {
+          margin-top:8px;
+          color:#64748b;
+          font-size:13px;
+        }
 
-<div class="card">
-<h2>Quick Actions</h2>
+        .kpi.blue { border-top:4px solid #3b82f6; }
+        .kpi.purple { border-top:4px solid #8b5cf6; }
+        .kpi.green { border-top:4px solid #22c55e; }
+        .kpi.orange { border-top:4px solid #f59e0b; }
 
-<div class="quick">
+        .dash-grid {
+          display:grid;
+          grid-template-columns:1.5fr 1fr;
+          gap:20px;
+          margin-bottom:20px;
+        }
 
-<a href="/customers?add=1">
-<strong>+ Add Customer</strong>
-<br>
-<span class="muted">Create a new customer</span>
-</a>
+        .panel {
+          background:#111827;
+          border:1px solid #1f2937;
+          border-radius:16px;
+          padding:20px;
+          box-shadow:0 10px 30px rgba(0,0,0,.12);
+        }
 
-<a href="/leads?add=1">
-<strong>+ Add Lead</strong>
-<br>
-<span class="muted">Create a new lead</span>
-</a>
+        .panel-title {
+          font-size:18px;
+          font-weight:800;
+          margin-bottom:18px;
+        }
 
-<a href="/followups">
-<strong>Follow-ups</strong>
-<br>
-<span class="muted">Check scheduled follow-ups</span>
-</a>
+        .status-grid {
+          display:grid;
+          grid-template-columns:repeat(2,1fr);
+          gap:12px;
+        }
 
-</div>
-</div>
+        .status-box {
+          padding:16px;
+          border-radius:12px;
+          background:#0f172a;
+          border:1px solid #1e293b;
+        }
 
-<div class="grid-2">
+        .status-box span {
+          color:#94a3b8;
+          font-size:13px;
+        }
 
-<div class="card">
-<h2>Lead Sources</h2>
-${sourceRows}
-</div>
+        .status-box strong {
+          display:block;
+          font-size:25px;
+          margin-top:6px;
+        }
 
-<div class="card">
-<h2>Recent Leads</h2>
+        .source-row {
+          margin-bottom:17px;
+        }
 
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>Name</th>
-<th>Phone</th>
-<th>Source</th>
-<th>Status</th>
-<th>Follow-up</th>
-</tr>
-</thead>
+        .source-top {
+          display:flex;
+          justify-content:space-between;
+          margin-bottom:7px;
+          color:#cbd5e1;
+        }
 
-<tbody>
-${recentRows}
-</tbody>
-</table>
-</div>
+        .source-track {
+          height:9px;
+          background:#1e293b;
+          border-radius:99px;
+          overflow:hidden;
+        }
 
-</div>
+        .source-fill {
+          height:100%;
+          background:#3b82f6;
+          border-radius:99px;
+        }
 
-</div>
-`;
+        .conversion-box {
+          text-align:center;
+          padding:12px 0 4px;
+        }
 
-    res.send(
-      page(
-        'Dashboard',
-        content,
-        'dashboard',
-        req.session.user.username
-      )
-    );
+        .conversion-number {
+          font-size:48px;
+          font-weight:900;
+          color:#22c55e;
+        }
+
+        .conversion-text {
+          color:#94a3b8;
+        }
+
+        .table-wrap {
+          overflow-x:auto;
+        }
+
+        .dash-table {
+          width:100%;
+          border-collapse:collapse;
+        }
+
+        .dash-table th,
+        .dash-table td {
+          padding:13px 10px;
+          border-bottom:1px solid #1f2937;
+          text-align:left;
+          white-space:nowrap;
+        }
+
+        .dash-table th {
+          color:#94a3b8;
+          font-size:13px;
+        }
+
+        .badge {
+          display:inline-block;
+          padding:5px 9px;
+          border-radius:999px;
+          font-size:12px;
+          font-weight:700;
+          background:#1e293b;
+          color:#cbd5e1;
+        }
+
+        .badge.source {
+          background:#172554;
+          color:#93c5fd;
+        }
+
+        .badge.status {
+          background:#052e16;
+          color:#86efac;
+        }
+
+        @media(max-width:900px) {
+          .kpi-grid {
+            grid-template-columns:repeat(2,1fr);
+          }
+
+          .dash-grid {
+            grid-template-columns:1fr;
+          }
+        }
+
+        @media(max-width:600px) {
+          .kpi-grid {
+            grid-template-columns:1fr;
+          }
+
+          .dash-head h1 {
+            font-size:25px;
+          }
+
+          .panel {
+            padding:15px;
+          }
+        }
+      </style>
+
+      <div class="dash-head">
+        <div>
+          <h1>Dashboard</h1>
+          <p>Welcome back! Here's what's happening with your CRM.</p>
+        </div>
+
+        <div class="dash-actions">
+          <a class="dash-btn" href="/leads/add">+ Add Lead</a>
+          <a class="dash-btn secondary" href="/customers/add">+ Customer</a>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi blue">
+          <div class="kpi-label">Total Customers</div>
+          <div class="kpi-number">${totalCustomers}</div>
+          <div class="kpi-small">All customers</div>
+        </div>
+
+        <div class="kpi purple">
+          <div class="kpi-label">Total Leads</div>
+          <div class="kpi-number">${totalLeads}</div>
+          <div class="kpi-small">${newLeads} new leads</div>
+        </div>
+
+        <div class="kpi green">
+          <div class="kpi-label">Converted</div>
+          <div class="kpi-number">${converted}</div>
+          <div class="kpi-small">${conversionRate}% conversion rate</div>
+        </div>
+
+        <div class="kpi orange">
+          <div class="kpi-label">Pending Follow-ups</div>
+          <div class="kpi-number">${pendingFollowups}</div>
+          <div class="kpi-small">Upcoming follow-ups</div>
+        </div>
+      </div>
+
+      <div class="dash-grid">
+
+        <div class="panel">
+          <div class="panel-title">Lead Status Overview</div>
+
+          <div class="status-grid">
+            <div class="status-box">
+              <span>New</span>
+              <strong>${newLeads}</strong>
+            </div>
+
+            <div class="status-box">
+              <span>Contacted</span>
+              <strong>${contacted}</strong>
+            </div>
+
+            <div class="status-box">
+              <span>Interested</span>
+              <strong>${interested}</strong>
+            </div>
+
+            <div class="status-box">
+              <span>Follow-up</span>
+              <strong>${followups}</strong>
+            </div>
+
+            <div class="status-box">
+              <span>Converted</span>
+              <strong>${converted}</strong>
+            </div>
+
+            <div class="status-box">
+              <span>Lost</span>
+              <strong>${lost}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-title">Lead Sources</div>
+          ${sourceBars || '<p style="color:#94a3b8">No leads yet.</p>'}
+        </div>
+
+      </div>
+
+      <div class="dash-grid">
+
+        <div class="panel">
+          <div class="panel-title">Conversion Performance</div>
+
+          <div class="conversion-box">
+            <div class="conversion-number">${conversionRate}%</div>
+            <div class="conversion-text">
+              ${converted} converted out of ${totalLeads} total leads
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-title">Follow-up Summary</div>
+
+          <div class="status-grid">
+            <div class="status-box">
+              <span>Upcoming</span>
+              <strong>${pendingFollowups}</strong>
+            </div>
+
+            <div class="status-box">
+              <span>Follow-up Leads</span>
+              <strong>${followups}</strong>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Recent Leads</div>
+
+        <div class="table-wrap">
+          <table class="dash-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Phone</th>
+                <th>Source</th>
+                <th>Status</th>
+                <th>Follow-up</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              ${recentLeads || `
+                <tr>
+                  <td colspan="5" style="color:#94a3b8">
+                    No leads found.
+                  </td>
+                </tr>
+              `}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+
+    res.send(page('Dashboard', content));
 
   } catch (err) {
-
-    console.error(err);
-
-    res.status(500).send(
-      'Dashboard error: ' + esc(err.message)
-    );
+    console.error('Dashboard error:', err);
+    res.status(500).send('Dashboard error: ' + err.message);
   }
-
 });
 
 /* CUSTOMERS */
