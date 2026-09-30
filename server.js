@@ -4,6 +4,7 @@ const pg = require('pg');
 
 const { Pool } = pg;
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 
 if (!process.env.DATABASE_URL) {
@@ -19,7 +20,7 @@ const pool = new Pool({
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
-
+app.set('trust proxy', 1);
 app.use(session({
   secret: process.env.SESSION_SECRET || 'crm-secret-change-this',
   resave: false,
