@@ -566,6 +566,10 @@ async function setupDatabase() {
       created_at TIMESTAMP DEFAULT NOW()
     )
   `);
+await pool.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'staff'
+  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS customers (
