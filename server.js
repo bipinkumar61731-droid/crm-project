@@ -582,22 +582,11 @@ await pool.query(`
       created_at TIMESTAMP DEFAULT NOW()
     )
   `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS leads (
-      id SERIAL PRIMARY KEY,
-      name VARCHAR(150) NOT NULL,
-      phone VARCHAR(50),
-      email VARCHAR(150),
-      source VARCHAR(80),
-      status VARCHAR(80) DEFAULT 'New',
-      follow_up DATE,
-      notes TEXT,
-      created_at TIMESTAMP DEFAULT NOW()
-    )
-  `);
-
-  await pool.query(
+await pool.query(`
+  ALTER TABLE leads
+  ADD COLUMN IF NOT EXISTS follow_up DATE
+`);
+    await pool.query(
     `INSERT INTO users(username,password,role)
      VALUES($1,$2,$3)
      ON CONFLICT(username)
