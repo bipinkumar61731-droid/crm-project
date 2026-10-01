@@ -92,6 +92,26 @@ function requireAdmin(req, res, next) {
   }
 
   next();
+}function requireStaffOrAdmin(req, res, next) {
+  if (!req.session.user) {
+    return res.redirect('/login');
+  }
+
+  if (
+    req.session.user.role !== 'admin' &&
+    req.session.user.role !== 'staff'
+  ) {
+    return res.status(403).send(
+      page(
+        'Access Denied',
+        '<div class="card"><h2>Access denied</h2><p>You do not have permission for this action.</p></div>',
+        '',
+        req.session.user.username
+      )
+    );
+  }
+
+  next();
 }
 
 function page(title, content, active, username) {
