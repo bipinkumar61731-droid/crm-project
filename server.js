@@ -603,6 +603,11 @@ async function setupDatabase() {
       role VARCHAR(50) DEFAULT 'staff',
       created_at TIMESTAMP DEFAULT NOW()
     )
+`);
+
+await pool.query(`
+  ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()
   `);
 
   await pool.query(`
