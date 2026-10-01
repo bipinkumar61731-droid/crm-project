@@ -2374,16 +2374,21 @@ app.get('/staff', requireAdmin, async function(req, res) {
     let rows = '';
 
     result.rows.forEach(function(user) {
-
-      rows += `
-      <tr>
-        <td>${esc(user.username)}</td>
-        <td><span class="badge">${esc(user.role)}</span></td>
-        <td>${new Date(user.created_at).toISOString().slice(0,10)}</td>
-      </tr>
-      `;
-    });
-
+ 
+     rows += `
+  <tr>
+    <td>${esc(user.username)}</td>
+    <td><span class="badge">${esc(user.role)}</span></td>
+    <td>${new Date(user.created_at).toISOString().slice(0,10)}</td>
+    <td>
+      <form method="POST" action="/staff/reset-password/${user.id}" style="display:flex;gap:8px;">
+        <input name="password" type="password" placeholder="New password" required>
+        <button class="btn" type="submit">Reset</button>
+      </form>
+    </td>
+  </tr>
+`;
+});
     const content = `
 
 <div class="grid-2">
@@ -2497,7 +2502,36 @@ app.post('/staff/add', requireAdmin, async function(req, res) {
   }
 
 });
+app.post('/staff/reset-password/:id', requireAdmin, async function(req, res) {
 
+  try {
+
+    const userId = Number(req.params.id);
+    const newPassword = String(req.body.password || '');
+
+    if (!newPassword) {
+      return res.status(400).send('Password required');
+    }
+
+    await pool.query(
+      `UPDATE users
+       SET password=$1
+       WHERE id=$2`,
+      [newPassword, userId]
+    );
+
+    res.redirect('/staff');
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send(
+      'Reset password error: ' + esc(err.message)
+    );
+  }
+
+});
 /* API INFO */
 
 app.get('/api-info', requireLogin, function(req, res) {
