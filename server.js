@@ -21,7 +21,28 @@ const pool = new Pool({
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+function requireApiKey(req, res, next) {
 
+  const apiKey = req.headers['x-api-key'];
+
+  const validApiKey = process.env.CRM_API_KEY;
+
+  if (!validApiKey) {
+    return res.status(500).json({
+      success: false,
+      error: 'API key is not configured'
+    });
+  }
+
+  if (!apiKey || apiKey !== validApiKey) {
+    return res.status(401).json({
+      success: false,
+      error: 'Invalid API key'
+    });
+  }
+
+  next();
+}
 app.use(session({
   secret: process.env.SESSION_SECRET || 'crm-secret-change-this',
   resave: false,
@@ -2556,8 +2577,7 @@ app.get('/health', async function(req, res) {
 
 });
 
-app.get('/api/customers', async function(req, res) {
-
+app.get('/api/customers', requireApiKey, async function(req, res) {
   try {
 
     const result = await pool.query(`
@@ -2582,8 +2602,7 @@ app.get('/api/customers', async function(req, res) {
 
 });
 
-app.get('/api/leads', async function(req, res) {
-
+app.get('/api/leads', requireApiKey, async function(req, res) {
   try {
 
     const result = await pool.query(`
@@ -2608,8 +2627,7 @@ app.get('/api/leads', async function(req, res) {
 
 });
 
-app.post('/api/leads', async function(req, res) {
-
+app.post('/api/leads', requireApiKey, async function(req, res) {
   try {
 
     const name = String(req.body.name || '').trim();
