@@ -2824,7 +2824,17 @@ app.post('/whatsapp/send', requireLogin, async function(req, res) {
         error: data
       });
     }
-
+await pool.query(
+  `INSERT INTO whatsapp_messages
+   (phone, message, direction, whatsapp_message_id)
+   VALUES ($1, $2, $3, $4)`,
+  [
+    to,
+    message,
+    'outgoing',
+    data.messages?.[0]?.id || null
+  ]
+);
     res.json({
       success: true,
       message: 'WhatsApp message sent',
