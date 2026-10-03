@@ -698,7 +698,16 @@ await pool.query(`
                    role=EXCLUDED.role`,
     ['admin', 'Admin@123', 'admin']
   );
-
+await pool.query(`
+    CREATE TABLE IF NOT EXISTS whatsapp_messages (
+      id SERIAL PRIMARY KEY,
+      phone VARCHAR(50) NOT NULL,
+      message TEXT,
+      direction VARCHAR(20) NOT NULL,
+      whatsapp_message_id VARCHAR(255),
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
   console.log('Database setup completed.');
 }
 
@@ -2602,16 +2611,46 @@ app.get('/webhook/whatsapp', function(req, res) {
 
   res.sendStatus(403);
 });
+app.post('/webhook/whatsapp', async function(req, res) {
+  try {
+    console.log('WhatsApp webhook received');
 
-app.post('/webhook/whatsapp', function(req, res) {
+    const value = req.body?.entry?.[0]?.changes?.[0]?.value;
+    const messages = value?.messages || [];
 
-  console.log('WhatsApp webhook received');
+    for (const msg of messages) {
+      const phone = msg.from || '';
+      const whatsappMessageId = msg.id || '';
 
-  console.log(
-    JSON.stringify(req.body, null, 2)
-  );
+      let message = '';
 
-  res.sendStatus(200);
+      if (msg.type === 'text') {
+        message = msg.text?.body || '';
+      } else {
+        message = `[${msg.type || 'unknown'} message]`;
+      }
+
+      if (!phone) continue;
+
+      await pool.query(
+        `INSERT INTO whatsapp_messages
+         (phone, message, direction, whatsapp_message_id)
+         VALUES ($1, $2, $3, $4)`,
+        [phone, message, 'incoming', whatsappMessageId]
+      );
+
+      console.log('Incoming WhatsApp message saved:', {
+        phone,
+        message
+      });
+    }
+
+    res.sendStatus(200);
+
+  } catch (err) {
+    console.error('WhatsApp webhook error:', err);
+    res.sendStatus(500);
+  }
 });
 /* WHATSAPP SEND MESSAGE */
 
