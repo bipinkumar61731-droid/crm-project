@@ -2613,6 +2613,74 @@ app.post('/webhook/whatsapp', function(req, res) {
 
   res.sendStatus(200);
 });
+/* WHATSAPP SEND MESSAGE */
+
+app.post('/whatsapp/send', requireLogin, async function(req, res) {
+  try {
+    const to = String(req.body.to || '').trim();
+    const message = String(req.body.message || '').trim();
+
+    if (!to || !message) {
+      return res.status(400).json({
+        success: false,
+        error: 'Phone number and message are required'
+      });
+    }
+
+    const token = process.env.WHATSAPP_ACCESS_TOKEN;
+    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+
+    if (!token || !phoneNumberId) {
+      return res.status(500).json({
+        success: false,
+        error: 'WhatsApp API is not configured'
+      });
+    }
+
+    const response = await fetch(
+      `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: to,
+          type: 'text',
+          text: {
+            body: message
+          }
+        })
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error('WhatsApp API error:', data);
+      return res.status(response.status).json({
+        success: false,
+        error: data
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'WhatsApp message sent',
+      data: data
+    });
+
+  } catch (err) {
+    console.error('WhatsApp send error:', err);
+
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+});
 /* PUBLIC API */
 
 app.get('/health', async function(req, res) {
