@@ -884,7 +884,8 @@ app.get('/', requireLogin, async function(req, res) {
       lostResult,
       pendingFollowupsResult,
       sourceResult,
-      recentLeadsResult
+      recentLeadsResult,
+whatsappMessagesResult
     ] = await Promise.all([
       pool.query('SELECT COUNT(*)::int AS count FROM customers'),
       pool.query('SELECT COUNT(*)::int AS count FROM leads'),
@@ -911,6 +912,12 @@ app.get('/', requireLogin, async function(req, res) {
         FROM leads
         ORDER BY id DESC
         LIMIT 8
+      `),
+pool.query(`
+        SELECT id, phone, message, direction, created_at
+        FROM whatsapp_messages
+        ORDER BY id DESC
+        LIMIT 10
       `)
     ]);
 
@@ -949,7 +956,7 @@ app.get('/', requireLogin, async function(req, res) {
         </div>
       `;
     }).join('');
-
+const whatsappMessages = whatsappMessagesResult.rows;
     const recentLeads = recentLeadsResult.rows.map(lead => `
   <tr>
     <td><strong>${esc(lead.name)}</strong></td>
@@ -1361,7 +1368,43 @@ app.get('/', requireLogin, async function(req, res) {
         </div>
 
       </div>
+<div class="panel">
+        <div class="panel-title">WhatsApp Messages</div>
 
+        <div class="table-wrap">
+          <table class="dash-table">
+            <thead>
+              <tr>
+                <th>Phone</th>
+                <th>Message</th>
+                <th>Direction</th>
+                <th>Time</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              ${
+                whatsappMessages.length
+                  ? whatsappMessages.map(msg => `
+                    <tr>
+                      <td>${esc(msg.phone)}</td>
+                      <td>${esc(msg.message || '-')}</td>
+                      <td>${esc(msg.direction)}</td>
+                      <td>${esc(new Date(msg.created_at).toLocaleString())}</td>
+                    </tr>
+                  `).join('')
+                  : `
+                    <tr>
+                      <td colspan="4" style="color:#94a3b8">
+                        No WhatsApp messages found.
+                      </td>
+                    </tr>
+                  `
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
       <div class="panel">
         <div class="panel-title">Recent Leads</div>
 
