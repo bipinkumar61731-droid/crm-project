@@ -1369,42 +1369,119 @@ const whatsappMessages = whatsappMessagesResult.rows;
 
       </div>
 <div class="panel">
-        <div class="panel-title">WhatsApp Messages</div>
+      <div class="panel">
+  <div class="panel-title">WhatsApp Chat</div>
 
-        <div class="table-wrap">
-          <table class="dash-table">
-            <thead>
-              <tr>
-                <th>Phone</th>
-                <th>Message</th>
-                <th>Direction</th>
-                <th>Time</th>
-              </tr>
-            </thead>
+  <div style="display:flex;flex-direction:column;gap:12px;">
+    ${
+      whatsappMessages.length
+        ? whatsappMessages.map(msg => `
+          <div style="
+            display:flex;
+            justify-content:${msg.direction === 'incoming' ? 'flex-start' : 'flex-end'};
+          ">
+            <div style="
+              max-width:75%;
+              padding:10px 14px;
+              border-radius:12px;
+              background:${msg.direction === 'incoming' ? '#1e293b' : '#166534'};
+              color:white;
+            ">
+              <div style="font-size:12px;color:#cbd5e1;margin-bottom:5px;">
+                ${esc(msg.phone)}
+              </div>
 
-            <tbody>
-              ${
-                whatsappMessages.length
-                  ? whatsappMessages.map(msg => `
-                    <tr>
-                      <td>${esc(msg.phone)}</td>
-                      <td>${esc(msg.message || '-')}</td>
-                      <td>${esc(msg.direction)}</td>
-                      <td>${esc(new Date(msg.created_at).toLocaleString())}</td>
-                    </tr>
-                  `).join('')
-                  : `
-                    <tr>
-                      <td colspan="4" style="color:#94a3b8">
-                        No WhatsApp messages found.
-                      </td>
-                    </tr>
-                  `
-              }
-            </tbody>
-          </table>
-        </div>
-      </div>
+              <div style="font-size:14px;">
+                ${esc(msg.message || '-')}
+              </div>
+
+              <div style="font-size:11px;color:#cbd5e1;margin-top:5px;">
+                ${esc(new Date(msg.created_at).toLocaleString())}
+              </div>
+            </div>
+          </div>
+        `).join('')
+        : `
+          <div style="color:#94a3b8;padding:15px;">
+            No WhatsApp messages found.
+          </div>
+        `
+    }
+  </div>
+
+  <div style="
+    margin-top:20px;
+    padding-top:15px;
+    border-top:1px solid #334155;
+  ">
+    <div style="font-weight:600;margin-bottom:10px;">
+      Send WhatsApp Message
+    </div>
+
+    <form onsubmit="return sendWhatsAppMessage(event)"
+      style="display:flex;gap:8px;flex-wrap:wrap;">
+
+      <input
+        id="waPhone"
+        placeholder="Phone number"
+        required
+        style="flex:1;min-width:160px;"
+      >
+
+      <input
+        id="waMessage"
+        placeholder="Type message..."
+        required
+        style="flex:2;min-width:200px;"
+      >
+
+      <button type="submit">Send</button>
+    </form>
+  </div>
+</div>
+
+<script>
+async function sendWhatsAppMessage(event) {
+  event.preventDefault();
+
+  const to = document.getElementById('waPhone').value.trim();
+  const message = document.getElementById('waMessage').value.trim();
+
+  if (!to || !message) {
+    alert('Phone number and message are required');
+    return false;
+  }
+
+  try {
+    const response = await fetch('/whatsapp/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        to: to,
+        message: message
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      alert('Message failed: ' + JSON.stringify(data.error));
+      return false;
+    }
+
+    alert('WhatsApp message sent successfully!');
+    document.getElementById('waMessage').value = '';
+    location.reload();
+
+  } catch (err) {
+    alert('Error sending WhatsApp message');
+  }
+
+  return false;
+}
+</script> 
       <div class="panel">
         <div class="panel-title">Recent Leads</div>
 
