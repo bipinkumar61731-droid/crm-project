@@ -121,6 +121,7 @@ function page(title, content, active, username) {
     ['/leads', 'Leads', 'leads'],
     ['/followups', 'Follow-ups', 'followups'],
     ['/staff', 'Staff', 'staff'],
+['/clients', 'Clients', 'clients'],
     ['/api-info', 'API', 'api'],
     ['/whatsapp', '💬 WhatsApp Chat', 'whatsapp']
   ];
@@ -604,7 +605,25 @@ async function setupDatabase() {
       created_at TIMESTAMP DEFAULT NOW()
     )
 `);
+await pool.query(`
+  ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS client_id INTEGER
+`);
 
+// =========================
+// MULTI-CLIENT SYSTEM
+// =========================
+
+await pool.query(`
+  CREATE TABLE IF NOT EXISTS clients (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(150) NOT NULL,
+    email VARCHAR(150),
+    phone VARCHAR(50),
+    status VARCHAR(30) DEFAULT 'active',
+    created_at TIMESTAMP DEFAULT NOW()
+  )
+`);
 await pool.query(`
   ALTER TABLE users
   ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()
@@ -615,9 +634,24 @@ await pool.query(`
     ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'staff'
   `);
 
+  
+
   await pool.query(`
+    ALTER TABLE customers
+    ADD COLUMN IF NOT EXISTS phone VARCHAR(50)
+  `);
+  await pool.query(`
+    ALTER TABLE customers
+    ADD COLUMN IF NOT EXISTS email VARCHAR(150)
+  `);
+ await pool.query(`
+    ALTER TABLE customers
+    ADD COLUMN IF NOT EXISTS address TEXT
+  `);
+await pool.query(`
     CREATE TABLE IF NOT EXISTS customers (
       id SERIAL PRIMARY KEY,
+      client_id INTEGER,
       name VARCHAR(150) NOT NULL,
       phone VARCHAR(50),
       email VARCHAR(150),
@@ -625,25 +659,16 @@ await pool.query(`
       created_at TIMESTAMP DEFAULT NOW()
     )
   `);
+await pool.query(`
+  ALTER TABLE customers
+  ADD COLUMN IF NOT EXISTS client_id INTEGER
+`);
 
-  await pool.query(`
-    ALTER TABLE customers
-    ADD COLUMN IF NOT EXISTS phone VARCHAR(50)
-  `);
-
-  await pool.query(`
-    ALTER TABLE customers
-    ADD COLUMN IF NOT EXISTS email VARCHAR(150)
-  `);
-
-  await pool.query(`
-    ALTER TABLE customers
-    ADD COLUMN IF NOT EXISTS address TEXT
-  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS leads (
       id SERIAL PRIMARY KEY,
+      client_id INTEGER,
       name VARCHAR(150) NOT NULL,
       phone VARCHAR(50),
       email VARCHAR(150),
@@ -689,8 +714,7 @@ await pool.query(`
     ALTER TABLE leads
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()
   `);
-
-  await pool.query(
+await pool.query(
     `INSERT INTO users(username,password,role)
      VALUES($1,$2,$3)
      ON CONFLICT(username)
@@ -698,6 +722,16 @@ await pool.query(`
                    role=EXCLUDED.role`,
     ['admin', 'Admin@123', 'admin']
   );
+await pool.query(`
+    CREATE TABLE IF NOT EXISTS whatsapp_messages (
+      id SERIAL PRIMARY KEY,
+      phone VARCHAR(50) NOT NULL,
+      message TEXT,
+      direction VARCHAR(20) NOT NULL,
+      whatsapp_message_id VARCHAR(255),
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
 await pool.query(`
     CREATE TABLE IF NOT EXISTS whatsapp_messages (
       id SERIAL PRIMARY KEY,
@@ -2594,6 +2628,173 @@ app.post('/staff/reset-password/:id', requireAdmin, async function(req, res) {
     );
   }
 
+});
+/* =========================
+   CLIENT MANAGEMENT
+========================= */
+
+app.get('/clients', requireAdmin, async function(req, res) {
+  try {
+    const result = await pool.query(`
+      SELECT id, name, email, phone, status, created_at
+      FROM clients
+      ORDER BY id DESC
+    `);
+
+    let rows = '';
+
+    result.rows.forEach(function(client) {
+      rows += `
+        <tr>
+          <td>${client.id}</td>
+          <td>${esc(client.name)}</td>
+          <td>${esc(client.email || '')}</td>
+          <td>${esc(client.phone || '')}</td>
+          <td>${esc(client.status || 'active')}</td>
+          <td>
+            <form method="POST" action="/clients/${client.id}/status" style="display:inline;">
+              <input type="hidden" name="status" value="${
+                client.status === 'active' ? 'inactive' : 'active'
+              }">
+              <button type="submit">
+                ${client.status === 'active' ? 'Deactivate' : 'Activate'}
+              </button>
+            </form>
+          </td>
+        </tr>
+      `;
+    });
+
+    const content = `
+      <div class="card">
+        <h2>Add Client</h2>
+
+        <form method="POST" action="/clients">
+          <input
+            type="text"
+            name="name"
+            placeholder="Client name"
+            required
+          >
+
+          <input
+            type="email"
+            name="email"
+            placeholder="Email"
+          >
+
+          <input
+            type="text"
+            name="phone"
+            placeholder="Phone"
+          >
+
+          <button type="submit">Add Client</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Clients</h2>
+
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Phone</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            ${rows || `
+              <tr>
+                <td colspan="6">No clients found</td>
+              </tr>
+            `}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    res.send(
+      page(
+        'Clients',
+        content,
+        'clients',
+        req.session.user.username
+      )
+    );
+
+  } catch (err) {
+    console.error('Clients page error:', err);
+
+    res.status(500).send(
+      page(
+        'Clients',
+        '<div class="card"><h2>Error</h2><p>Unable to load clients.</p></div>',
+        'clients',
+        req.session.user.username
+      )
+    );
+  }
+});
+
+
+app.post('/clients', requireAdmin, async function(req, res) {
+  try {
+    const name = String(req.body.name || '').trim();
+    const email = String(req.body.email || '').trim();
+    const phone = String(req.body.phone || '').trim();
+
+    if (!name) {
+      return res.status(400).send('Client name required');
+    }
+
+    await pool.query(
+      `
+      INSERT INTO clients(name, email, phone, status)
+      VALUES($1, $2, $3, 'active')
+      `,
+      [name, email, phone]
+    );
+
+    res.redirect('/clients');
+
+  } catch (err) {
+    console.error('Add client error:', err);
+    res.status(500).send('Unable to add client');
+  }
+});
+
+
+app.post('/clients/:id/status', requireAdmin, async function(req, res) {
+  try {
+    const status =
+      req.body.status === 'inactive'
+        ? 'inactive'
+        : 'active';
+
+    await pool.query(
+      `
+      UPDATE clients
+      SET status=$1
+      WHERE id=$2
+      `,
+      [
+        status,
+        Number(req.params.id)
+      ]
+    );
+
+    res.redirect('/clients');
+
+  } catch (err) {
+    console.error('Client status update error:', err);
+    res.status(500).send('Unable to update client status');
+  }
 });
 /* API INFO */
 
