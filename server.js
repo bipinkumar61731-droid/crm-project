@@ -121,11 +121,11 @@ function page(title, content, active, username) {
     ['/leads', 'Leads', 'leads'],
     ['/followups', 'Follow-ups', 'followups'],
     ['/staff', 'Staff', 'staff'],
-    ['/api-info', 'API', 'api']
+    ['/api-info', 'API', 'api'],
+    ['/whatsapp', '💬 WhatsApp Chat', 'whatsapp']
   ];
 
   let links = '';
-
   for (const item of nav) {
     links +=
       '<a class="nav-link ' +
@@ -708,6 +708,10 @@ await pool.query(`
       created_at TIMESTAMP DEFAULT NOW()
     )
   `);
+await pool.query(`
+  ALTER TABLE whatsapp_messages
+  ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE
+`);
   console.log('Database setup completed.');
 }
 
@@ -1370,77 +1374,7 @@ const whatsappMessages = whatsappMessagesResult.rows;
       </div>
 <div class="panel">
       <div class="panel">
-  <div class="panel-title">WhatsApp Chat</div>
-
-  <div style="display:flex;flex-direction:column;gap:12px;">
-    ${
-      whatsappMessages.length
-        ? whatsappMessages.map(msg => `
-          <div style="
-            display:flex;
-            justify-content:${msg.direction === 'incoming' ? 'flex-start' : 'flex-end'};
-          ">
-            <div style="
-              max-width:75%;
-              padding:10px 14px;
-              border-radius:12px;
-              background:${msg.direction === 'incoming' ? '#1e293b' : '#166534'};
-              color:white;
-            ">
-              <div style="font-size:12px;color:#cbd5e1;margin-bottom:5px;">
-                ${esc(msg.phone)}
-              </div>
-
-              <div style="font-size:14px;">
-                ${esc(msg.message || '-')}
-              </div>
-
-              <div style="font-size:11px;color:#cbd5e1;margin-top:5px;">
-                ${esc(new Date(msg.created_at).toLocaleString())}
-              </div>
-            </div>
-          </div>
-        `).join('')
-        : `
-          <div style="color:#94a3b8;padding:15px;">
-            No WhatsApp messages found.
-          </div>
-        `
-    }
-  </div>
-
-  <div style="
-    margin-top:20px;
-    padding-top:15px;
-    border-top:1px solid #334155;
-  ">
-    <div style="font-weight:600;margin-bottom:10px;">
-      Send WhatsApp Message
-    </div>
-
-    <form onsubmit="return sendWhatsAppMessage(event)"
-      style="display:flex;gap:8px;flex-wrap:wrap;">
-
-      <input
-        id="waPhone"
-        placeholder="Phone number"
-        required
-        style="flex:1;min-width:160px;"
-      >
-
-      <input
-        id="waMessage"
-        placeholder="Type message..."
-        required
-        style="flex:2;min-width:200px;"
-      >
-
-      <button type="submit">Send</button>
-    </form>
-  </div>
-</div>
-
-<script>
+  
 async function sendWhatsAppMessage(event) {
   event.preventDefault();
 
@@ -2773,9 +2707,501 @@ app.post('/webhook/whatsapp', async function(req, res) {
   }
 });
 /* WHATSAPP SEND MESSAGE */
+/* =========================
+   WHATSAPP CHAT INBOX
+========================= */
 
+app.get('/whatsapp', requireLogin, async function(req, res) {
+  try {
+    const search = String(req.query.search || '').trim();
+    const selectedPhone = String(req.query.phone || '').trim();
+
+    // Mark selected conversation as read first
+    if (selectedPhone) {
+      await pool.query(
+        `
+        UPDATE whatsapp_messages
+        SET is_read = true
+        WHERE phone = $1
+          AND direction = 'incoming'
+        `,
+        [selectedPhone]
+      );
+    }
+
+    // Conversation list
+    let conversationsQuery = `
+      SELECT
+        phone,
+        MAX(id) AS last_id,
+        MAX(created_at) AS last_time,
+        COUNT(*)::int AS message_count,
+        COUNT(*) FILTER (
+          WHERE direction = 'incoming'
+          AND is_read = false
+        )::int AS unread_count
+      FROM whatsapp_messages
+    `;
+
+    const params = [];
+
+    if (search) {
+      params.push('%' + search + '%');
+
+      conversationsQuery += `
+        WHERE phone ILIKE $1
+      `;
+    }
+
+    conversationsQuery += `
+      GROUP BY phone
+      ORDER BY last_id DESC
+    `;
+
+    const conversationsResult =
+      await pool.query(conversationsQuery, params);
+
+    let phone = selectedPhone;
+
+    if (!phone && conversationsResult.rows.length) {
+      phone = conversationsResult.rows[0].phone;
+    }
+
+    // Messages of selected conversation
+    let messages = [];
+
+    if (phone) {
+      const messageResult = await pool.query(
+        `
+        SELECT
+          id,
+          phone,
+          message,
+          direction,
+          whatsapp_message_id,
+          created_at
+        FROM whatsapp_messages
+        WHERE phone = $1
+        ORDER BY id ASC
+        `,
+        [phone]
+      );
+
+      messages = messageResult.rows;
+    }
+
+    // Conversation list HTML
+    const conversationRows =
+      conversationsResult.rows.map(chat => {
+
+        const active =
+          chat.phone === phone
+            ? 'background:#1d2945;'
+            : '';
+
+        return `
+          <a
+            href="/whatsapp?phone=${encodeURIComponent(chat.phone)}"
+            style="
+              display:block;
+              padding:14px;
+              border-bottom:1px solid #26304a;
+              text-decoration:none;
+              color:white;
+              ${active}
+            "
+          >
+
+            <div style="
+              display:flex;
+              justify-content:space-between;
+              gap:8px;
+            ">
+
+              <strong>
+                📱 ${esc(chat.phone)}
+              </strong>
+
+              ${
+                Number(chat.unread_count) > 0
+                  ? `
+                    <span style="
+                      background:#22c55e;
+                      color:#052e16;
+                      padding:3px 8px;
+                      border-radius:20px;
+                      font-size:11px;
+                      font-weight:800;
+                    ">
+                      ${chat.unread_count}
+                    </span>
+                  `
+                  : ''
+              }
+
+            </div>
+
+            <div style="
+              color:#94a3b8;
+              font-size:12px;
+              margin-top:5px;
+            ">
+              ${chat.message_count} messages
+            </div>
+
+          </a>
+        `;
+
+      }).join('');
+
+    // Message bubbles
+    const messageRows =
+      messages.map(msg => {
+
+        const incoming =
+          msg.direction === 'incoming';
+
+        return `
+          <div style="
+            display:flex;
+            justify-content:${incoming
+              ? 'flex-start'
+              : 'flex-end'};
+            margin-bottom:10px;
+          ">
+
+            <div style="
+              max-width:75%;
+              padding:11px 14px;
+              border-radius:14px;
+              background:${incoming
+                ? '#1e293b'
+                : '#166534'};
+              color:white;
+            ">
+
+              <div style="
+                font-size:14px;
+                line-height:1.45;
+                white-space:pre-wrap;
+              ">
+                ${esc(msg.message || '-')}
+              </div>
+
+              <div style="
+                font-size:10px;
+                color:#cbd5e1;
+                margin-top:5px;
+                text-align:right;
+              ">
+                ${esc(
+                  new Date(
+                    msg.created_at
+                  ).toLocaleString()
+                )}
+              </div>
+
+            </div>
+
+          </div>
+        `;
+
+      }).join('');
+
+    const content = `
+
+      <style>
+
+        .wa-layout {
+          display:grid;
+          grid-template-columns:320px 1fr;
+          gap:18px;
+          min-height:650px;
+        }
+
+        .wa-list {
+          background:#111827;
+          border:1px solid #26304a;
+          border-radius:16px;
+          overflow:hidden;
+        }
+
+        .wa-chat {
+          background:#111827;
+          border:1px solid #26304a;
+          border-radius:16px;
+          display:flex;
+          flex-direction:column;
+          overflow:hidden;
+        }
+
+        .wa-header {
+          padding:16px;
+          border-bottom:1px solid #26304a;
+          font-weight:800;
+        }
+
+        .wa-messages {
+          flex:1;
+          padding:18px;
+          overflow-y:auto;
+          min-height:450px;
+          max-height:560px;
+        }
+
+        .wa-compose {
+          padding:15px;
+          border-top:1px solid #26304a;
+        }
+
+        .wa-compose form {
+          display:flex;
+          gap:8px;
+        }
+
+        .wa-compose input {
+          flex:1;
+        }
+
+        @media(max-width:800px) {
+
+          .wa-layout {
+            grid-template-columns:1fr;
+          }
+
+          .wa-list {
+            max-height:300px;
+            overflow-y:auto;
+          }
+
+          .wa-messages {
+            min-height:400px;
+          }
+
+        }
+
+      </style>
+
+      <div class="wa-layout">
+
+        <!-- LEFT CONVERSATION LIST -->
+
+        <div class="wa-list">
+
+          <div style="
+            padding:16px;
+            border-bottom:1px solid #26304a;
+          ">
+
+            <form
+              method="GET"
+              action="/whatsapp"
+            >
+
+              <input
+                name="search"
+                placeholder="Search phone..."
+                value="${esc(search)}"
+              >
+
+            </form>
+
+          </div>
+
+          ${
+            conversationRows ||
+            `
+              <div style="
+                padding:20px;
+                color:#94a3b8;
+              ">
+                No WhatsApp conversations yet.
+              </div>
+            `
+          }
+
+        </div>
+
+
+        <!-- RIGHT CHAT -->
+
+        <div class="wa-chat">
+
+          <div class="wa-header">
+
+            ${
+              phone
+                ? `💬 WhatsApp — ${esc(phone)}`
+                : '💬 WhatsApp Inbox'
+            }
+
+          </div>
+
+
+          <!-- MESSAGES -->
+
+          <div class="wa-messages">
+
+            ${
+              messageRows ||
+              `
+                <div style="
+                  color:#94a3b8;
+                  text-align:center;
+                  padding:80px 20px;
+                ">
+
+                  ${
+                    phone
+                      ? 'No messages yet.'
+                      : 'Select a conversation.'
+                  }
+
+                </div>
+              `
+            }
+
+          </div>
+
+
+          ${
+            phone
+              ? `
+
+                <!-- REPLY BOX -->
+
+                <div class="wa-compose">
+
+                  <form
+                    onsubmit="return sendWhatsAppMessage(event)"
+                  >
+
+                    <input
+                      id="waMessage"
+                      placeholder="Type a message..."
+                      autocomplete="off"
+                      required
+                    >
+
+                    <button
+                      class="btn"
+                      type="submit"
+                    >
+                      Send
+                    </button>
+
+                  </form>
+
+                </div>
+
+
+                <script>
+
+                  async function sendWhatsAppMessage(event) {
+
+                    event.preventDefault();
+
+                    const input =
+                      document.getElementById(
+                        'waMessage'
+                      );
+
+                    const message =
+                      input.value.trim();
+
+                    if (!message) {
+                      return false;
+                    }
+
+                    try {
+
+                      const response =
+                        await fetch(
+                          '/whatsapp/send',
+                          {
+                            method:'POST',
+
+                            headers:{
+                              'Content-Type':
+                                'application/json'
+                            },
+
+                            body:JSON.stringify({
+                              to:${JSON.stringify(phone)},
+                              message:message
+                            })
+                          }
+                        );
+
+                      const data =
+                        await response.json();
+
+                      if (!response.ok) {
+
+                        alert(
+                          'Message failed: ' +
+                          JSON.stringify(
+                            data.error
+                          )
+                        );
+
+                        return false;
+                      }
+
+                      input.value = '';
+
+                      location.reload();
+
+                    } catch(err) {
+
+                      alert(
+                        'Error sending WhatsApp message'
+                      );
+
+                    }
+
+                    return false;
+
+                  }
+
+                </script>
+
+              `
+              : ''
+          }
+
+        </div>
+
+      </div>
+
+    `;
+
+    res.send(
+      page(
+        'WhatsApp Chat',
+        content,
+        'whatsapp',
+        req.session.user.username
+      )
+    );
+
+  } catch (err) {
+
+    console.error(
+      'WhatsApp page error:',
+      err
+    );
+
+    res.status(500).send(
+      'WhatsApp page error: ' +
+      esc(err.message)
+    );
+
+  }
+});
 app.post('/whatsapp/send', requireLogin, async function(req, res) {
   try {
+
     const to = String(req.body.to || '').trim();
     const message = String(req.body.message || '').trim();
 
