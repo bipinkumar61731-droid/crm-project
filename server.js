@@ -596,14 +596,20 @@ const statusOptions = [
 
 async function setupDatabase() {
 
-  await pool.query(`
+await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
       username VARCHAR(100) UNIQUE NOT NULL,
       password VARCHAR(255) NOT NULL,
       role VARCHAR(50) DEFAULT 'staff',
+      client_id INTEGER,
       created_at TIMESTAMP DEFAULT NOW()
     )
+`);
+
+await pool.query(`
+  ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS client_id INTEGER
 `);
 await pool.query(`
   ALTER TABLE users
@@ -2669,29 +2675,43 @@ app.get('/clients', requireAdmin, async function(req, res) {
       <div class="card">
         <h2>Add Client</h2>
 
-        <form method="POST" action="/clients">
-          <input
-            type="text"
-            name="name"
-            placeholder="Client name"
-            required
-          >
+       <form method="POST" action="/clients">
+  <input
+    type="text"
+    name="name"
+    placeholder="Client name"
+    required
+  >
 
-          <input
-            type="email"
-            name="email"
-            placeholder="Email"
-          >
+  <input
+    type="email"
+    name="email"
+    placeholder="Email"
+  >
 
-          <input
-            type="text"
-            name="phone"
-            placeholder="Phone"
-          >
+  <input
+    type="text"
+    name="phone"
+    placeholder="Phone"
+  >
 
-          <button type="submit">Add Client</button>
-        </form>
-      </div>
+  <input
+    type="text"
+    name="username"
+    placeholder="Client username"
+    required
+  >
+
+  <input
+    type="password"
+    name="password"
+    placeholder="Client password"
+    required
+  >
+
+  <button type="submit">Add Client</button>
+</form>
+      </div> 
 
       <div class="card">
         <h2>Clients</h2>
@@ -2748,27 +2768,46 @@ app.post('/clients', requireAdmin, async function(req, res) {
     const name = String(req.body.name || '').trim();
     const email = String(req.body.email || '').trim();
     const phone = String(req.body.phone || '').trim();
+    const username = String(req.body.username || '').trim();
+    const password = String(req.body.password || '').trim();
 
     if (!name) {
       return res.status(400).send('Client name required');
     }
 
-    await pool.query(
+    if (!username || !password) {
+      return res.status(400).send('Username and password required');
+    }
+
+    const clientResult = await pool.query(
       `
       INSERT INTO clients(name, email, phone, status)
       VALUES($1, $2, $3, 'active')
+      RETURNING id
       `,
       [name, email, phone]
+    );
+
+    const clientId = clientResult.rows[0].id;
+
+    await pool.query(
+      `
+      INSERT INTO users(username, password, role, client_id)
+      VALUES($1, $2, 'client', $3)
+      `,
+      [username, password, clientId]
     );
 
     res.redirect('/clients');
 
   } catch (err) {
     console.error('Add client error:', err);
-    res.status(500).send('Unable to add client');
+
+    res.status(500).send(
+      'Unable to add client: ' + err.message
+    );
   }
 });
-
 
 app.post('/clients/:id/status', requireAdmin, async function(req, res) {
   try {
