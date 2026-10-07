@@ -882,11 +882,12 @@ app.post('/login', async function(req, res) {
         return res.redirect('/login?error=1');
       }
 
-      req.session.user = {
-        id: user.id,
-        username: user.username,
-        role: user.role
-      };
+     req.session.user = {
+  id: user.id,
+  username: user.username,
+  role: user.role,
+  client_id: user.client_id
+};
 
       req.session.save(function(err) {
 
@@ -1494,6 +1495,106 @@ async function sendWhatsAppMessage(event) {
 });
 
 /* CUSTOMERS */
+app.post('/customers/edit/:id', requireLogin, async function(req, res) {
+
+  try {
+
+    const customerId = Number(req.params.id);
+    const isAdmin = req.session.user.role === 'admin';
+    const clientId = req.session.user.client_id;
+
+    if (isAdmin) {
+
+      await pool.query(
+        `UPDATE customers
+         SET name=$1,
+             phone=$2,
+             email=$3,
+             address=$4
+         WHERE id=$5`,
+        [
+          req.body.name || '',
+          req.body.phone || '',
+          req.body.email || '',
+          req.body.address || '',
+          customerId
+        ]
+      );
+
+    } else {
+
+      await pool.query(
+        `UPDATE customers
+         SET name=$1,
+             phone=$2,
+             email=$3,
+             address=$4
+         WHERE id=$5
+         AND client_id=$6`,
+        [
+          req.body.name || '',
+          req.body.phone || '',
+          req.body.email || '',
+          req.body.address || '',
+          customerId,
+          clientId
+        ]
+      );
+
+    }
+
+    res.redirect('/customers');
+
+  } catch (err) {
+
+    console.error('Customer edit error:', err);
+    res.status(500).send('Customer edit error: ' + err.message);
+
+  }
+
+});
+app.post('/customers/delete/:id', requireLogin, async function(req, res) {
+
+  try {
+
+    const customerId = Number(req.params.id);
+    const isAdmin = req.session.user.role === 'admin';
+    const clientId = req.session.user.client_id;
+
+    if (isAdmin) {
+
+      await pool.query(
+        `DELETE FROM customers
+         WHERE id=$1`,
+        [
+          customerId
+        ]
+      );
+
+    } else {
+
+      await pool.query(
+        `DELETE FROM customers
+         WHERE id=$1
+         AND client_id=$2`,
+        [
+          customerId,
+          clientId
+        ]
+      );
+
+    }
+
+    res.redirect('/customers');
+
+  } catch (err) {
+
+    console.error('Customer delete error:', err);
+    res.status(500).send('Customer delete error: ' + err.message);
+
+  }
+
+});
 
 app.get('/customers', requireLogin, async function(req, res) {
 
@@ -1501,27 +1602,64 @@ app.get('/customers', requireLogin, async function(req, res) {
 
     const search = String(req.query.search || '').trim();
 
+    const isAdmin = req.session.user.role === 'admin';
+    const clientId = req.session.user.client_id;
+
     let result;
 
     if (search) {
 
-      result = await pool.query(
-        `SELECT *
-         FROM customers
-         WHERE name ILIKE $1
-         OR phone ILIKE $1
-         OR email ILIKE $1
-         ORDER BY created_at DESC`,
-        ['%' + search + '%']
-      );
+      if (isAdmin) {
+
+        result = await pool.query(
+          `SELECT *
+           FROM customers
+           WHERE name ILIKE $1
+           OR phone ILIKE $1
+           OR email ILIKE $1
+           ORDER BY created_at DESC`,
+          ['%' + search + '%']
+        );
+
+      } else {
+
+        result = await pool.query(
+          `SELECT *
+           FROM customers
+           WHERE client_id=$1
+           AND (
+             name ILIKE $2
+             OR phone ILIKE $2
+             OR email ILIKE $2
+           )
+           ORDER BY created_at DESC`,
+          [
+            clientId,
+            '%' + search + '%'
+          ]
+        );
+      }
 
     } else {
 
-      result = await pool.query(
-        `SELECT *
-         FROM customers
-         ORDER BY created_at DESC`
-      );
+      if (isAdmin) {
+
+        result = await pool.query(
+          `SELECT *
+           FROM customers
+           ORDER BY created_at DESC`
+        );
+
+      } else {
+
+        result = await pool.query(
+          `SELECT *
+           FROM customers
+           WHERE client_id=$1
+           ORDER BY created_at DESC`,
+          [clientId]
+        );
+      }
     }
 
     const editId = req.query.edit
@@ -1532,10 +1670,28 @@ app.get('/customers', requireLogin, async function(req, res) {
 
     if (editId) {
 
-      const editResult = await pool.query(
-        'SELECT * FROM customers WHERE id=$1',
-        [editId]
-      );
+      let editResult;
+
+      if (isAdmin) {
+
+        editResult = await pool.query(
+          'SELECT * FROM customers WHERE id=$1',
+          [editId]
+        );
+
+      } else {
+
+        editResult = await pool.query(
+          `SELECT *
+           FROM customers
+           WHERE id=$1
+           AND client_id=$2`,
+          [
+            editId,
+            clientId
+          ]
+        );
+      }
 
       editCustomer = editResult.rows[0] || null;
     }
@@ -1552,7 +1708,9 @@ app.get('/customers', requireLogin, async function(req, res) {
         <td>${esc(customer.address)}</td>
         <td>
           <div class="actions">
-            <a class="btn btn-gray" href="/customers?edit=${customer.id}">
+
+            <a class="btn btn-gray"
+               href="/customers?edit=${customer.id}">
               Edit
             </a>
 
@@ -1565,6 +1723,7 @@ app.get('/customers', requireLogin, async function(req, res) {
               </button>
 
             </form>
+
           </div>
         </td>
       </tr>
@@ -1611,8 +1770,13 @@ app.get('/customers', requireLogin, async function(req, res) {
 
       </div>
 
-      <button class="btn" type="submit">Update Customer</button>
-      <a class="btn btn-gray" href="/customers">Cancel</a>
+      <button class="btn" type="submit">
+        Update Customer
+      </button>
+
+      <a class="btn btn-gray" href="/customers">
+        Cancel
+      </a>
 
       </form>
       </div>
@@ -1665,14 +1829,18 @@ app.get('/customers', requireLogin, async function(req, res) {
 
 <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
 
-<form method="GET" action="/customers" style="display:flex;gap:8px;flex:1">
+<form method="GET"
+      action="/customers"
+      style="display:flex;gap:8px;flex:1">
 
 <input
 name="search"
 placeholder="Search name, phone or email..."
 value="${esc(search)}">
 
-<button class="btn" type="submit">Search</button>
+<button class="btn" type="submit">
+Search
+</button>
 
 </form>
 
@@ -1733,88 +1901,6 @@ ${rows}
   }
 
 });
-
-app.post('/customers/add', requireLogin, async function(req, res) {
-
-  try {
-
-    const name = String(req.body.name || '').trim();
-
-    if (!name) {
-      return res.redirect('/customers?add=1');
-    }
-
-    await pool.query(
-      `INSERT INTO customers
-       (name,phone,email,address)
-       VALUES($1,$2,$3,$4)`,
-      [
-        name,
-        req.body.phone || '',
-        req.body.email || '',
-        req.body.address || ''
-      ]
-    );
-
-    res.redirect('/customers');
-
-  } catch (err) {
-
-    console.error(err);
-    res.status(500).send('Add customer error: ' + esc(err.message));
-  }
-
-});
-
-app.post('/customers/edit/:id', requireLogin, async function(req, res) {
-
-  try {
-
-    await pool.query(
-      `UPDATE customers
-       SET name=$1,
-           phone=$2,
-           email=$3,
-           address=$4
-       WHERE id=$5`,
-      [
-        req.body.name || '',
-        req.body.phone || '',
-        req.body.email || '',
-        req.body.address || '',
-        Number(req.params.id)
-      ]
-    );
-
-    res.redirect('/customers');
-
-  } catch (err) {
-
-    console.error(err);
-    res.status(500).send('Edit customer error: ' + esc(err.message));
-  }
-
-});
-
-app.post('/customers/delete/:id', requireLogin, async function(req, res) {
-
-  try {
-
-    await pool.query(
-      'DELETE FROM customers WHERE id=$1',
-      [Number(req.params.id)]
-    );
-
-    res.redirect('/customers');
-
-  } catch (err) {
-
-    console.error(err);
-    res.status(500).send('Delete customer error: ' + esc(err.message));
-  }
-
-});
-
 /* LEADS */
 
 app.get('/leads', requireLogin, async function(req, res) {
@@ -1825,8 +1911,21 @@ app.get('/leads', requireLogin, async function(req, res) {
     const status = String(req.query.status || '').trim();
     const source = String(req.query.source || '').trim();
 
-    let conditions = [];
-    let params = [];
+  const isAdmin = req.session.user.role === 'admin';
+const clientId = req.session.user.client_id;
+
+let conditions = [];
+let params = [];
+
+if (!isAdmin) {
+
+  params.push(clientId);
+
+  conditions.push(
+    `client_id=$${params.length}`
+  );
+
+}
 
     if (search) {
 
@@ -1878,11 +1977,23 @@ app.get('/leads', requireLogin, async function(req, res) {
 
     if (editId) {
 
-      const editResult = await pool.query(
-        'SELECT * FROM leads WHERE id=$1',
-        [editId]
-      );
+      let editResult;
 
+if (isAdmin) {
+
+  editResult = await pool.query(
+    'SELECT * FROM leads WHERE id=$1',
+    [editId]
+  );
+
+} else {
+
+  editResult = await pool.query(
+    'SELECT * FROM leads WHERE id=$1 AND client_id=$2',
+    [editId, clientId]
+  );
+
+}
       editLead = editResult.rows[0] || null;
     }
 
@@ -2265,21 +2376,23 @@ app.post('/leads/add', requireLogin, async function(req, res) {
       return res.redirect('/leads?add=1');
     }
 
-    await pool.query(
-      `INSERT INTO leads
-       (name,phone,email,source,status,follow_up,notes)
-       VALUES($1,$2,$3,$4,$5,$6,$7)`,
-      [
-        name,
-        req.body.phone || '',
-        req.body.email || '',
-        req.body.source || 'Other',
-        req.body.status || 'New',
-        req.body.follow_up || null,
-        req.body.notes || ''
-      ]
-    );
+   const clientId = req.session.user.client_id;
 
+await pool.query(
+  `INSERT INTO leads
+   (client_id,name,phone,email,source,status,follow_up,notes)
+   VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+  [
+    clientId,
+    name,
+    req.body.phone || '',
+    req.body.email || '',
+    req.body.source || 'Other',
+    req.body.status || 'New',
+    req.body.follow_up || null,
+    req.body.notes || ''
+  ]
+);
     res.redirect('/leads');
 
   } catch (err) {
@@ -2297,28 +2410,61 @@ app.post('/leads/edit/:id', requireLogin, async function(req, res) {
 
   try {
 
-    await pool.query(
-      `UPDATE leads
-       SET name=$1,
-           phone=$2,
-           email=$3,
-           source=$4,
-           status=$5,
-           follow_up=$6,
-           notes=$7
-       WHERE id=$8`,
-      [
-        req.body.name || '',
-        req.body.phone || '',
-        req.body.email || '',
-        req.body.source || 'Other',
-        req.body.status || 'New',
-        req.body.follow_up || null,
-        req.body.notes || '',
-        Number(req.params.id)
-      ]
-    );
+    const leadId = Number(req.params.id);
+const isAdmin = req.session.user.role === 'admin';
+const clientId = req.session.user.client_id;
 
+if (isAdmin) {
+
+  await pool.query(
+    `UPDATE leads
+     SET name=$1,
+         phone=$2,
+         email=$3,
+         source=$4,
+         status=$5,
+         follow_up=$6,
+         notes=$7
+     WHERE id=$8`,
+    [
+      req.body.name || '',
+      req.body.phone || '',
+      req.body.email || '',
+      req.body.source || 'Other',
+      req.body.status || 'New',
+      req.body.follow_up || null,
+      req.body.notes || '',
+      leadId
+    ]
+  );
+
+} else {
+
+  await pool.query(
+    `UPDATE leads
+     SET name=$1,
+         phone=$2,
+         email=$3,
+         source=$4,
+         status=$5,
+         follow_up=$6,
+         notes=$7
+     WHERE id=$8
+     AND client_id=$9`,
+    [
+      req.body.name || '',
+      req.body.phone || '',
+      req.body.email || '',
+      req.body.source || 'Other',
+      req.body.status || 'New',
+      req.body.follow_up || null,
+      req.body.notes || '',
+      leadId,
+      clientId
+    ]
+  );
+
+}
     res.redirect('/leads');
 
   } catch (err) {
@@ -2336,11 +2482,25 @@ app.post('/leads/delete/:id', requireLogin, async function(req, res) {
 
   try {
 
-    await pool.query(
-      'DELETE FROM leads WHERE id=$1',
-      [Number(req.params.id)]
-    );
+const leadId = Number(req.params.id);
+const isAdmin = req.session.user.role === 'admin';
+const clientId = req.session.user.client_id;
 
+if (isAdmin) {
+
+  await pool.query(
+    'DELETE FROM leads WHERE id=$1',
+    [leadId]
+  );
+
+} else {
+
+  await pool.query(
+    'DELETE FROM leads WHERE id=$1 AND client_id=$2',
+    [leadId, clientId]
+  );
+
+}
     res.redirect('/leads');
 
   } catch (err) {
@@ -2360,14 +2520,36 @@ app.get('/followups', requireLogin, async function(req, res) {
 
   try {
 
-    const result = await pool.query(`
-      SELECT *
-      FROM leads
-      WHERE follow_up IS NOT NULL
-      AND status NOT IN ('Converted','Lost')
-      ORDER BY follow_up ASC
-    `);
+   const isAdmin = req.session.user.role === 'admin';
+const clientId = req.session.user.client_id;
 
+let result;
+
+if (isAdmin) {
+
+  result = await pool.query(`
+    SELECT *
+    FROM leads
+    WHERE follow_up IS NOT NULL
+    AND status NOT IN ('Converted','Lost')
+    ORDER BY follow_up ASC
+  `);
+
+} else {
+
+  result = await pool.query(
+    `
+    SELECT *
+    FROM leads
+    WHERE follow_up IS NOT NULL
+    AND status NOT IN ('Converted','Lost')
+    AND client_id=$1
+    ORDER BY follow_up ASC
+    `,
+    [clientId]
+  );
+
+}
     let rows = '';
 
     result.rows.forEach(function(lead) {
