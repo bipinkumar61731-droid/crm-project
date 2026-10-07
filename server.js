@@ -923,6 +923,8 @@ app.get('/logout', function(req, res) {
 /* DASHBOARD */
 app.get('/', requireLogin, async function(req, res) {
   try {
+const isAdmin = req.session.user.role === 'admin';
+const clientId = req.session.user.client_id;
     const [
       customersResult,
       leadsResult,
@@ -937,32 +939,116 @@ app.get('/', requireLogin, async function(req, res) {
       recentLeadsResult,
 whatsappMessagesResult
     ] = await Promise.all([
-      pool.query('SELECT COUNT(*)::int AS count FROM customers'),
-      pool.query('SELECT COUNT(*)::int AS count FROM leads'),
-      pool.query("SELECT COUNT(*)::int AS count FROM leads WHERE status='New'"),
-      pool.query("SELECT COUNT(*)::int AS count FROM leads WHERE status='Contacted'"),
-      pool.query("SELECT COUNT(*)::int AS count FROM leads WHERE status='Interested'"),
-      pool.query("SELECT COUNT(*)::int AS count FROM leads WHERE status='Follow-up'"),
-      pool.query("SELECT COUNT(*)::int AS count FROM leads WHERE status='Converted'"),
-      pool.query("SELECT COUNT(*)::int AS count FROM leads WHERE status='Lost'"),
-      pool.query(`
-        SELECT COUNT(*)::int AS count
-        FROM leads
-        WHERE follow_up IS NOT NULL
-        AND follow_up >= CURRENT_DATE
-      `),
-      pool.query(`
-        SELECT COALESCE(source, 'Other') AS source, COUNT(*)::int AS count
-        FROM leads
-        GROUP BY source
-        ORDER BY count DESC
-      `),
-      pool.query(`
-        SELECT id, name, phone, source, status, follow_up, notes
-        FROM leads
-        ORDER BY id DESC
-        LIMIT 8
-      `),
+            pool.query(
+        isAdmin
+          ? 'SELECT COUNT(*)::int AS count FROM customers'
+          : 'SELECT COUNT(*)::int AS count FROM customers WHERE client_id=$1',
+        isAdmin ? [] : [clientId]
+      ),
+
+      pool.query(
+        isAdmin
+          ? 'SELECT COUNT(*)::int AS count FROM leads'
+          : 'SELECT COUNT(*)::int AS count FROM leads WHERE client_id=$1',
+        isAdmin ? [] : [clientId]
+      ),
+
+      pool.query(
+        isAdmin
+          ? "SELECT COUNT(*)::int AS count FROM leads WHERE status='New'"
+          : "SELECT COUNT(*)::int AS count FROM leads WHERE status='New' AND client_id=$1",
+        isAdmin ? [] : [clientId]
+      ),
+
+      pool.query(
+        isAdmin
+          ? "SELECT COUNT(*)::int AS count FROM leads WHERE status='Contacted'"
+          : "SELECT COUNT(*)::int AS count FROM leads WHERE status='Contacted' AND client_id=$1",
+        isAdmin ? [] : [clientId]
+      ),
+
+      pool.query(
+        isAdmin
+          ? "SELECT COUNT(*)::int AS count FROM leads WHERE status='Interested'"
+          : "SELECT COUNT(*)::int AS count FROM leads WHERE status='Interested' AND client_id=$1",
+        isAdmin ? [] : [clientId]
+      ),
+
+      pool.query(
+        isAdmin
+          ? "SELECT COUNT(*)::int AS count FROM leads WHERE status='Follow-up'"
+          : "SELECT COUNT(*)::int AS count FROM leads WHERE status='Follow-up' AND client_id=$1",
+        isAdmin ? [] : [clientId]
+      ),
+
+      pool.query(
+        isAdmin
+          ? "SELECT COUNT(*)::int AS count FROM leads WHERE status='Converted'"
+          : "SELECT COUNT(*)::int AS count FROM leads WHERE status='Converted' AND client_id=$1",
+        isAdmin ? [] : [clientId]
+      ),
+
+      pool.query(
+        isAdmin
+          ? "SELECT COUNT(*)::int AS count FROM leads WHERE status='Lost'"
+          : "SELECT COUNT(*)::int AS count FROM leads WHERE status='Lost' AND client_id=$1",
+        isAdmin ? [] : [clientId]
+      ),
+
+      pool.query(
+        isAdmin
+          ? `
+            SELECT COUNT(*)::int AS count
+            FROM leads
+            WHERE follow_up IS NOT NULL
+            AND follow_up >= CURRENT_DATE
+          `
+          : `
+            SELECT COUNT(*)::int AS count
+            FROM leads
+            WHERE follow_up IS NOT NULL
+            AND follow_up >= CURRENT_DATE
+            AND client_id=$1
+          `,
+        isAdmin ? [] : [clientId]
+      ),
+
+      pool.query(
+        isAdmin
+          ? `
+            SELECT COALESCE(source, 'Other') AS source, COUNT(*)::int AS count
+            FROM leads
+            GROUP BY source
+            ORDER BY count DESC
+          `
+          : `
+            SELECT COALESCE(source, 'Other') AS source, COUNT(*)::int AS count
+            FROM leads
+            WHERE client_id=$1
+            GROUP BY source
+            ORDER BY count DESC
+          `,
+        isAdmin ? [] : [clientId]
+      ),
+
+      pool.query(
+        isAdmin
+          ? `
+            SELECT id, name, phone, source, status, follow_up, notes
+            FROM leads
+            ORDER BY id DESC
+            LIMIT 8
+          `
+          : `
+            SELECT id, name, phone, source, status, follow_up, notes
+            FROM leads
+            WHERE client_id=$1
+            ORDER BY id DESC
+            LIMIT 8
+          `,
+        isAdmin ? [] : [clientId]
+      ),      
+
 pool.query(`
         SELECT id, phone, message, direction, created_at
         FROM whatsapp_messages
