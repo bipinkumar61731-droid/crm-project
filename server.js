@@ -716,6 +716,11 @@ await pool.query(`
     ADD COLUMN IF NOT EXISTS notes TEXT
   `);
 
+await pool.query(`
+    ALTER TABLE leads
+    ADD COLUMN IF NOT EXISTS client_id INTEGER
+  `);
+
   await pool.query(`
     ALTER TABLE leads
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()
@@ -1495,6 +1500,65 @@ async function sendWhatsAppMessage(event) {
 });
 
 /* CUSTOMERS */
+app.post('/customers/add', requireLogin, async function(req, res) {
+
+  try {
+
+    const name = String(req.body.name || '').trim();
+    const phone = String(req.body.phone || '').trim();
+    const email = String(req.body.email || '').trim();
+    const address = String(req.body.address || '').trim();
+
+    if (!name) {
+      return res.status(400).send('Customer name required');
+    }
+
+    const isAdmin = req.session.user.role === 'admin';
+    const clientId = req.session.user.client_id;
+
+    if (isAdmin) {
+
+      await pool.query(
+        `INSERT INTO customers
+         (name, phone, email, address)
+         VALUES($1,$2,$3,$4)`,
+        [
+          name,
+          phone,
+          email,
+          address
+        ]
+      );
+
+    } else {
+
+      await pool.query(
+        `INSERT INTO customers
+         (client_id, name, phone, email, address)
+         VALUES($1,$2,$3,$4,$5)`,
+        [
+          clientId,
+          name,
+          phone,
+          email,
+          address
+        ]
+      );
+
+    }
+
+    res.redirect('/customers');
+
+  } catch (err) {
+
+    console.error('Customer add error:', err);
+    res.status(500).send(
+      'Customer add error: ' + err.message
+    );
+
+  }
+
+});
 app.post('/customers/edit/:id', requireLogin, async function(req, res) {
 
   try {
@@ -1519,7 +1583,7 @@ app.post('/customers/edit/:id', requireLogin, async function(req, res) {
           req.body.address || '',
           customerId
         ]
-      );
+      );S
 
     } else {
 
