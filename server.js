@@ -3996,14 +3996,4 @@ app.post('/api/leads', requireApiKey, async function(req, res) {
     process.exit(1);
   }
 
-})();  process.exit(1);
-  }
-
-})();  process.exit(1);
-  }
-
-})();
-    process.exit(1);
-  }
-
 })();
