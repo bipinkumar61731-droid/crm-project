@@ -113,22 +113,21 @@ function requireAdmin(req, res, next) {
 
   next();
 }
-
-function page(title, content, active, username) {
-  const nav = [
+function page(title, content, active, role) {const nav = [
     ['/', 'Dashboard', 'dashboard'],
     ['/customers', 'Customers', 'customers'],
     ['/leads', 'Leads', 'leads'],
     ['/followups', 'Follow-ups', 'followups'],
-    ['/staff', 'Staff', 'staff'],
-['/clients', 'Clients', 'clients'],
     ['/api-info', 'API', 'api'],
     ['/whatsapp', '💬 WhatsApp Chat', 'whatsapp']
   ];
 
+if (role === 'admin') {
+  nav.push(['/clients', 'Clients', 'clients']);
+}
   let links = '';
-  for (const item of nav) {
-    links +=
+
+  for (const item of nav) {    links +=
       '<a class="nav-link ' +
       (active === item[2] ? 'active' : '') +
       '" href="' +
@@ -561,8 +560,7 @@ textarea:focus{
 <div class="topbar">
   <h1>${esc(title)}</h1>
   <div class="user-box">
-    👤 ${esc(username || 'Admin')}
-  </div>
+    👤${esc(role === 'admin' ? 'Admin' : 'Client')}  </div>
 </div>
 
 ${content}
@@ -1577,8 +1575,14 @@ async function sendWhatsAppMessage(event) {
       </div>
     `;
 
-    res.send(page('Dashboard', content));
-
+   res.send(
+  page(
+    'Dashboard',
+    content,
+    'dashboard',
+    req.session.user.role
+  )
+);
   } catch (err) {
     console.error('Dashboard error:', err);
     res.status(500).send('Dashboard error: ' + err.message);
@@ -2032,15 +2036,14 @@ ${rows}
 </div>
 `;
 
-    res.send(
-      page(
-        'Customers',
-        content,
-        'customers',
-        req.session.user.username
-      )
-    );
-
+   res.send(
+  page(
+    'Customers',
+    content,
+    'customers',
+    req.session.user.role
+  )
+);
   } catch (err) {
 
     console.error(err);
@@ -2497,13 +2500,13 @@ ${rows}
 `;
 
     res.send(
-      page(
-        'Leads',
-        content,
-        'leads',
-        req.session.user.username
-      )
-    );
+  page(
+    'Leads',
+    content,
+    'leads',
+    req.session.user.role
+  )
+);
 
   } catch (err) {
 
@@ -2775,13 +2778,13 @@ ${rows}
 `;
 
     res.send(
-      page(
-        'Follow-ups',
-        content,
-        'followups',
-        req.session.user.username
-      )
-    );
+  page(
+    'Follow-ups',
+    content,
+    'followups',
+    req.session.user.role
+  )
+);
 
   } catch (err) {
 
@@ -3990,6 +3993,16 @@ app.post('/api/leads', requireApiKey, async function(req, res) {
       err.message
     );
 
+    process.exit(1);
+  }
+
+})();  process.exit(1);
+  }
+
+})();  process.exit(1);
+  }
+
+})();
     process.exit(1);
   }
 
