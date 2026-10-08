@@ -1,6 +1,7 @@
 const express = require('express');
 const session = require('express-session');
 const pg = require('pg');
+const crypto = require('crypto');
 
 const { Pool } = pg;
 const app = express();
@@ -21,27 +22,67 @@ const pool = new Pool({
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
-function requireApiKey(req, res, next) {
+async function requireApiKey(req, res, next) {
 
-  const apiKey = req.headers['x-api-key'];
+  try {
 
-  const validApiKey = process.env.CRM_API_KEY;
+    const apiKey = req.headers['x-api-key'];
 
-  if (!validApiKey) {
-    return res.status(500).json({
+    if (!apiKey) {
+      return res.status(401).json({
+        success: false,
+        error: 'API key is required'
+      });
+    }
+
+    const validApiKey = process.env.CRM_API_KEY;
+
+    // Global API key
+    if (validApiKey && apiKey === validApiKey) {
+      req.apiClientId = null;
+      return next();
+    }
+
+    // Client API key
+    const result = await pool.query(
+      `
+      SELECT id, status
+      FROM clients
+      WHERE api_key=$1
+      `,
+      [apiKey]
+    );
+
+    if (!result.rows[0]) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid API key'
+      });
+    }
+
+    const client = result.rows[0];
+
+    if (client.status !== 'active') {
+      return res.status(403).json({
+        success: false,
+        error: 'Client account is inactive'
+      });
+    }
+
+    req.apiClientId = client.id;
+    next();
+
+  } catch (err) {
+
+    console.error('API authentication error:', err);
+
+    res.status(500).json({
       success: false,
-      error: 'API key is not configured'
+      error: 'API authentication failed'
     });
+
   }
 
-  if (!apiKey || apiKey !== validApiKey) {
-    return res.status(401).json({
-      success: false,
-      error: 'Invalid API key'
-    });
-  }
-
-  next();
 }
 app.use(session({
   secret: process.env.SESSION_SECRET || 'crm-secret-change-this',
@@ -628,6 +669,31 @@ await pool.query(`
     created_at TIMESTAMP DEFAULT NOW()
   )
 `);
+
+await pool.query(`
+  ALTER TABLE clients
+  ADD COLUMN IF NOT EXISTS api_key VARCHAR(255)
+`);
+const clientsWithoutApiKey = await pool.query(
+  `SELECT id FROM clients WHERE api_key IS NULL`
+);
+
+for (const client of clientsWithoutApiKey.rows) {
+
+  const apiKey = crypto.randomBytes(32).toString('hex');
+
+  await pool.query(
+    `UPDATE clients
+     SET api_key=$1
+     WHERE id=$2`,
+    [
+      apiKey,
+      client.id
+    ]
+  );
+
+}
+
 await pool.query(`
   ALTER TABLE users
   ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()
@@ -2977,8 +3043,8 @@ app.post('/staff/reset-password/:id', requireAdmin, async function(req, res) {
 app.get('/clients', requireAdmin, async function(req, res) {
   try {
     const result = await pool.query(`
-      SELECT id, name, email, phone, status, created_at
-      FROM clients
+      SELECT id, name, email, phone, status, api_key, created_at
+FROM clients
       ORDER BY id DESC
     `);
 
@@ -2991,7 +3057,12 @@ app.get('/clients', requireAdmin, async function(req, res) {
           <td>${esc(client.name)}</td>
           <td>${esc(client.email || '')}</td>
           <td>${esc(client.phone || '')}</td>
-          <td>${esc(client.status || 'active')}</td>
+         <td>${esc(client.status || 'active')}</td>
+
+         <td>
+           <code>${esc(client.api_key || '')}</code>
+         </td>
+
           <td>
             <form method="POST" action="/clients/${client.id}/status" style="display:inline;">
               <input type="hidden" name="status" value="${
@@ -3103,6 +3174,7 @@ app.post('/clients', requireAdmin, async function(req, res) {
     const name = String(req.body.name || '').trim();
     const email = String(req.body.email || '').trim();
     const phone = String(req.body.phone || '').trim();
+const apiKey = crypto.randomBytes(32).toString('hex');
     const username = String(req.body.username || '').trim();
     const password = String(req.body.password || '').trim();
 
@@ -3114,15 +3186,14 @@ app.post('/clients', requireAdmin, async function(req, res) {
       return res.status(400).send('Username and password required');
     }
 
-    const clientResult = await pool.query(
-      `
-      INSERT INTO clients(name, email, phone, status)
-      VALUES($1, $2, $3, 'active')
-      RETURNING id
-      `,
-      [name, email, phone]
-    );
-
+   const clientResult = await pool.query(
+  `
+  INSERT INTO clients(name, email, phone, status, api_key)
+  VALUES($1, $2, $3, 'active', $4)
+  RETURNING id
+  `,
+  [name, email, phone, apiKey]
+);
     const clientId = clientResult.rows[0].id;
 
     await pool.query(
@@ -3877,11 +3948,29 @@ app.get('/health', async function(req, res) {
 app.get('/api/customers', requireApiKey, async function(req, res) {
   try {
 
-    const result = await pool.query(`
-      SELECT *
-      FROM customers
-      ORDER BY created_at DESC
-    `);
+    let result;
+
+    if (req.apiClientId) {
+
+      result = await pool.query(
+        `
+        SELECT *
+        FROM customers
+        WHERE client_id=$1
+        ORDER BY created_at DESC
+        `,
+        [req.apiClientId]
+      );
+
+    } else {
+
+      result = await pool.query(`
+        SELECT *
+        FROM customers
+        ORDER BY created_at DESC
+      `);
+
+    }
 
     res.json({
       success: true,
@@ -3895,18 +3984,463 @@ app.get('/api/customers', requireApiKey, async function(req, res) {
       success: false,
       error: err.message
     });
+
+  }
+
+});
+app.post('/api/customers', requireApiKey, async function(req, res) {
+
+  try {
+
+    const name = String(req.body.name || '').trim();
+
+    if (!name) {
+
+      return res.status(400).json({
+        success: false,
+        error: 'name is required'
+      });
+
+    }
+
+    let clientId;
+
+    if (req.apiClientId) {
+
+      clientId = req.apiClientId;
+
+    } else {
+
+      clientId = Number(req.body.client_id);
+
+      if (!clientId) {
+
+        return res.status(400).json({
+          success: false,
+          error: 'client_id is required'
+        });
+
+      }
+
+    }
+
+    const result = await pool.query(
+      `INSERT INTO customers
+       (client_id,name,phone,email,address)
+       VALUES($1,$2,$3,$4,$5)
+       RETURNING *`,
+      [
+        clientId,
+        name,
+        req.body.phone || '',
+        req.body.email || '',
+        req.body.address || ''
+      ]
+    );
+
+    res.status(201).json({
+      success: true,
+      customer: result.rows[0]
+    });
+
+  } catch (err) {
+
+    console.error('API customer add error:', err);
+
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+
   }
 
 });
 
-app.get('/api/leads', requireApiKey, async function(req, res) {
+app.put('/api/customers/:id', requireApiKey, async function(req, res) {
+
   try {
 
-    const result = await pool.query(`
-      SELECT *
-      FROM leads
-      ORDER BY created_at DESC
-    `);
+    const customerId = Number(req.params.id);
+
+    if (!customerId) {
+
+      return res.status(400).json({
+        success: false,
+        error: 'valid customer id is required'
+      });
+
+    }
+
+    const name = String(req.body.name || '').trim();
+
+    if (!name) {
+
+      return res.status(400).json({
+        success: false,
+        error: 'name is required'
+      });
+
+    }
+
+    let result;
+
+    if (req.apiClientId) {
+
+      result = await pool.query(
+        `
+        UPDATE customers
+        SET name=$1,
+            phone=$2,
+            email=$3,
+            address=$4
+        WHERE id=$5
+          AND client_id=$6
+        RETURNING *
+        `,
+        [
+          name,
+          req.body.phone || '',
+          req.body.email || '',
+          req.body.address || '',
+          customerId,
+          req.apiClientId
+        ]
+      );
+
+    } else {
+
+      result = await pool.query(
+        `
+        UPDATE customers
+        SET name=$1,
+            phone=$2,
+            email=$3,
+            address=$4
+        WHERE id=$5
+        RETURNING *
+        `,
+        [
+          name,
+          req.body.phone || '',
+          req.body.email || '',
+          req.body.address || '',
+          customerId
+        ]
+      );
+
+    }
+
+    if (!result.rows[0]) {
+
+      return res.status(404).json({
+        success: false,
+        error: 'Customer not found'
+      });
+
+    }
+
+    res.json({
+      success: true,
+      customer: result.rows[0]
+    });
+
+  } catch (err) {
+
+    console.error('API customer update error:', err);
+
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+
+  }
+});
+app.delete('/api/customers/:id', requireApiKey, async function(req, res) {
+
+  try {
+
+    const customerId = Number(req.params.id);
+
+    if (!customerId) {
+
+      return res.status(400).json({
+        success: false,
+        error: 'valid customer id is required'
+      });
+
+    }
+
+    let result;
+
+    if (req.apiClientId) {
+
+      result = await pool.query(
+        `
+        DELETE FROM customers
+        WHERE id=$1
+          AND client_id=$2
+        RETURNING *
+        `,
+        [
+          customerId,
+          req.apiClientId
+        ]
+      );
+
+    } else {
+
+      result = await pool.query(
+        `
+        DELETE FROM customers
+        WHERE id=$1
+        RETURNING *
+        `,
+        [
+          customerId
+        ]
+      );
+
+    }
+
+    if (!result.rows[0]) {
+
+      return res.status(404).json({
+        success: false,
+        error: 'Customer not found'
+      });
+
+    }
+
+    res.json({
+      success: true,
+      message: 'Customer deleted successfully',
+      customer: result.rows[0]
+    });
+
+  } catch (err) {
+
+    console.error('API customer delete error:', err);
+
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+
+  }
+
+  });
+app.put('/api/leads/:id', requireApiKey, async function(req, res) {
+
+  try {
+
+    const leadId = Number(req.params.id);
+
+    if (!leadId) {
+
+      return res.status(400).json({
+        success: false,
+        error: 'valid lead id is required'
+      });
+
+    }
+
+    const name = String(req.body.name || '').trim();
+
+    if (!name) {
+
+      return res.status(400).json({
+        success: false,
+        error: 'name is required'
+      });
+
+    }
+
+    let result;
+
+    if (req.apiClientId) {
+
+      result = await pool.query(
+        `
+        UPDATE leads
+        SET name=$1,
+            phone=$2,
+            email=$3,
+            source=$4,
+            status=$5,
+            follow_up=$6,
+            notes=$7
+        WHERE id=$8
+          AND client_id=$9
+        RETURNING *
+        `,
+        [
+          name,
+          req.body.phone || '',
+          req.body.email || '',
+          req.body.source || 'Other',
+          req.body.status || 'New',
+          req.body.follow_up || null,
+          req.body.notes || '',
+          leadId,
+          req.apiClientId
+        ]
+      );
+
+    } else {
+
+      result = await pool.query(
+        `
+        UPDATE leads
+        SET name=$1,
+            phone=$2,
+            email=$3,
+            source=$4,
+            status=$5,
+            follow_up=$6,
+            notes=$7
+        WHERE id=$8
+        RETURNING *
+        `,
+        [
+          name,
+          req.body.phone || '',
+          req.body.email || '',
+          req.body.source || 'Other',
+          req.body.status || 'New',
+          req.body.follow_up || null,
+          req.body.notes || '',
+          leadId
+        ]
+      );
+
+    }
+
+    if (!result.rows[0]) {
+
+      return res.status(404).json({
+        success: false,
+        error: 'Lead not found'
+      });
+
+    }
+
+    res.json({
+      success: true,
+      lead: result.rows[0]
+    });
+
+  } catch (err) {
+
+    console.error('API lead update error:', err);
+
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+
+  }
+
+});
+app.delete('/api/leads/:id', requireApiKey, async function(req, res) {
+
+  try {
+
+    const leadId = Number(req.params.id);
+
+    if (!leadId) {
+
+      return res.status(400).json({
+        success: false,
+        error: 'valid lead id is required'
+      });
+
+    }
+
+    let result;
+
+    if (req.apiClientId) {
+
+      result = await pool.query(
+        `
+        DELETE FROM leads
+        WHERE id=$1
+          AND client_id=$2
+        RETURNING *
+        `,
+        [
+          leadId,
+          req.apiClientId
+        ]
+      );
+
+    } else {
+
+      result = await pool.query(
+        `
+        DELETE FROM leads
+        WHERE id=$1
+        RETURNING *
+        `,
+        [
+          leadId
+        ]
+      );
+
+    }
+
+    if (!result.rows[0]) {
+
+      return res.status(404).json({
+        success: false,
+        error: 'Lead not found'
+      });
+
+    }
+
+    res.json({
+      success: true,
+      message: 'Lead deleted successfully',
+      lead: result.rows[0]
+    });
+
+  } catch (err) {
+
+    console.error('API lead delete error:', err);
+
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+
+  }
+
+});
+  app.get('/api/leads', requireApiKey, async function(req, res) {
+  try {
+
+    let result;
+
+    if (req.apiClientId) {
+
+      result = await pool.query(
+        `
+        SELECT *
+        FROM leads
+        WHERE client_id=$1
+        ORDER BY created_at DESC
+        `,
+        [req.apiClientId]
+      );
+
+    } else {
+
+      result = await pool.query(`
+        SELECT *
+        FROM leads
+        ORDER BY created_at DESC
+      `);
+
+    }
 
     res.json({
       success: true,
@@ -3920,10 +4454,10 @@ app.get('/api/leads', requireApiKey, async function(req, res) {
       success: false,
       error: err.message
     });
+
   }
 
 });
-
 app.post('/api/leads', requireApiKey, async function(req, res) {
   try {
 
@@ -3937,12 +4471,34 @@ app.post('/api/leads', requireApiKey, async function(req, res) {
       });
     }
 
+    let clientId;
+
+    // Client API key
+    if (req.apiClientId) {
+
+      clientId = req.apiClientId;
+
+    } else {
+
+      // Global API key
+      clientId = Number(req.body.client_id);
+
+      if (!clientId) {
+        return res.status(400).json({
+          success: false,
+          error: 'client_id is required'
+        });
+      }
+
+    }
+
     const result = await pool.query(
       `INSERT INTO leads
-       (name,phone,email,source,status,follow_up,notes)
-       VALUES($1,$2,$3,$4,$5,$6,$7)
+       (client_id,name,phone,email,source,status,follow_up,notes)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8)
        RETURNING *`,
       [
+        clientId,
         name,
         req.body.phone || '',
         req.body.email || '',
@@ -3964,10 +4520,10 @@ app.post('/api/leads', requireApiKey, async function(req, res) {
       success: false,
       error: err.message
     });
+
   }
 
 });
-
 /* START */
 
 (async function start() {
