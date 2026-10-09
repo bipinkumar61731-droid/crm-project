@@ -3,6 +3,8 @@ const session = require('express-session');
 const pg = require('pg');
 const crypto = require('crypto');
 
+require('dotenv').config();
+
 const { Pool } = pg;
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -704,7 +706,7 @@ await pool.query(`
     ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'staff'
   `);
 
-  
+
 
   await pool.query(`
     ALTER TABLE customers
@@ -943,9 +945,20 @@ app.post('/login', async function(req, res) {
     }
 
     const user = result.rows[0];
+    if (user.role === 'client') {
+      const clientResult = await pool.query(
+        'SELECT status FROM clients WHERE id=$1',
+        [user.client_id]
+      );
 
+      if (
+        !clientResult.rows[0] ||
+        clientResult.rows[0].status !== 'active'
+      ) {
+        return res.redirect('/login?error=1');
+      }
+    }
     req.session.regenerate(function(err) {
-
       if (err) {
         console.error('Session regenerate error:', err);
         return res.redirect('/login?error=1');
@@ -1111,7 +1124,7 @@ whatsappMessagesResult
             LIMIT 8
           `,
         isAdmin ? [] : [clientId]
-      ),      
+      ),
 
 pool.query(`
         SELECT id, phone, message, direction, created_at
@@ -1570,7 +1583,7 @@ const whatsappMessages = whatsappMessagesResult.rows;
       </div>
 <div class="panel">
       <div class="panel">
-  
+
 async function sendWhatsAppMessage(event) {
   event.preventDefault();
 
@@ -1611,7 +1624,7 @@ async function sendWhatsAppMessage(event) {
 
   return false;
 }
-</script> 
+</script>
       <div class="panel">
         <div class="panel-title">Recent Leads</div>
 
@@ -2878,7 +2891,7 @@ app.get('/staff', requireAdmin, async function(req, res) {
     let rows = '';
 
     result.rows.forEach(function(user) {
- 
+
      rows += `
   <tr>
     <td>${esc(user.username)}</td>
@@ -3063,16 +3076,18 @@ FROM clients
            <code>${esc(client.api_key || '')}</code>
          </td>
 
-          <td>
-            <form method="POST" action="/clients/${client.id}/status" style="display:inline;">
-              <input type="hidden" name="status" value="${
-                client.status === 'active' ? 'inactive' : 'active'
-              }">
-              <button type="submit">
-                ${client.status === 'active' ? 'Deactivate' : 'Activate'}
-              </button>
-            </form>
-          </td>
+         <td>
+  <a href="/clients/${client.id}/edit">Edit</a>
+
+  <form method="POST" action="/clients/${client.id}/status" style="display:inline;">
+    <input type="hidden" name="status" value="${
+      client.status === 'active' ? 'inactive' : 'active'
+    }">
+    <button type="submit">
+      ${client.status === 'active' ? 'Deactivate' : 'Activate'}
+    </button>
+  </form>
+</td>
         </tr>
       `;
     });
@@ -3117,7 +3132,7 @@ FROM clients
 
   <button type="submit">Add Client</button>
 </form>
-      </div> 
+      </div>
 
       <div class="card">
         <h2>Clients</h2>
@@ -3239,6 +3254,86 @@ app.post('/clients/:id/status', requireAdmin, async function(req, res) {
   } catch (err) {
     console.error('Client status update error:', err);
     res.status(500).send('Unable to update client status');
+  }
+});
+
+app.get('/clients/:id/edit', requireAdmin, async function(req, res) {
+  try {
+    const id = Number(req.params.id);
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).send('Invalid client ID');
+    }
+
+    const result = await pool.query(
+      'SELECT id, name, email, phone FROM clients WHERE id=$1',
+      [id]
+    );
+
+    if (!result.rows[0]) {
+      return res.status(404).send('Client not found');
+    }
+
+    const client = result.rows[0];
+
+    const content = `
+      <div class="card">
+        <h2>Edit Client</h2>
+
+        <form method="POST" action="/clients/${client.id}/edit">
+          <label>Client Name</label>
+          <input name="name" value="${esc(client.name)}" required>
+
+          <label>Email</label>
+          <input type="email" name="email" value="${esc(client.email || '')}">
+
+          <label>Phone</label>
+          <input name="phone" value="${esc(client.phone || '')}">
+
+          <button type="submit">Save Changes</button>
+          <a href="/clients">Cancel</a>
+        </form>
+      </div>
+    `;
+
+    res.send(
+      page('Edit Client', content, 'clients', req.session.user.username)
+    );
+
+  } catch (err) {
+    console.error('Client edit page error:', err);
+    res.status(500).send('Unable to load client edit page');
+  }
+});
+
+app.post('/clients/:id/edit', requireAdmin, async function(req, res) {
+  try {
+    const id = Number(req.params.id);
+    const name = String(req.body.name || '').trim();
+    const email = String(req.body.email || '').trim();
+    const phone = String(req.body.phone || '').trim();
+
+    if (!Number.isInteger(id) || id <= 0 || !name) {
+      return res.status(400).send('Valid client ID and name are required');
+    }
+
+    const result = await pool.query(
+      `UPDATE clients
+       SET name=$1, email=$2, phone=$3
+       WHERE id=$4
+       RETURNING id`,
+      [name, email || null, phone || null, id]
+    );
+
+    if (!result.rows[0]) {
+      return res.status(404).send('Client not found');
+    }
+
+    res.redirect('/clients');
+
+  } catch (err) {
+    console.error('Client edit save error:', err);
+    res.status(500).send('Unable to save client changes');
   }
 });
 /* API INFO */

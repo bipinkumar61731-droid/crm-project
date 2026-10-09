@@ -2,3 +2,5 @@ node_modules/
 *.db
 .envserver-backup.js
 server-backup.js
+
+.env
