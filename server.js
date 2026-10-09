@@ -3533,11 +3533,47 @@ app.post('/webhook/whatsapp', async function(req, res) {
     console.log('WhatsApp webhook received');
 
     const value = req.body?.entry?.[0]?.changes?.[0]?.value;
-    const messages = value?.messages || [];
+
+    if (!value) {
+      return res.sendStatus(200);
+    }
+
+    const messages = value.messages || [];
+    const phoneNumberId =
+      value.metadata?.phone_number_id || '';
+
+    if (!phoneNumberId) {
+      console.warn('Webhook missing phone_number_id');
+      return res.sendStatus(200);
+    }
+
+    // Identify which client owns this WhatsApp number.
+    const settingsResult = await pool.query(
+      `SELECT client_id
+       FROM client_whatsapp_settings
+       WHERE phone_number_id = $1
+         AND is_active = TRUE
+       LIMIT 1`,
+      [phoneNumberId]
+    );
+
+    let clientId = null;
+
+    if (settingsResult.rows.length > 0) {
+      clientId = settingsResult.rows[0].client_id;
+    } else if (
+      phoneNumberId !== process.env.WHATSAPP_PHONE_NUMBER_ID
+    ) {
+      // Do not assign an unknown number's messages to another client.
+      console.warn('No client configured for WhatsApp number:', phoneNumberId);
+      return res.sendStatus(200);
+    }
 
     for (const msg of messages) {
       const phone = msg.from || '';
       const whatsappMessageId = msg.id || '';
+
+      if (!phone) continue;
 
       let message = '';
 
@@ -3547,18 +3583,24 @@ app.post('/webhook/whatsapp', async function(req, res) {
         message = `[${msg.type || 'unknown'} message]`;
       }
 
-      if (!phone) continue;
-
       await pool.query(
         `INSERT INTO whatsapp_messages
-         (phone, message, direction, whatsapp_message_id)
-         VALUES ($1, $2, $3, $4)`,
-        [phone, message, 'incoming', whatsappMessageId]
+          (client_id, phone_number_id, phone, message,
+           direction, whatsapp_message_id)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          clientId,
+          phoneNumberId,
+          phone,
+          message,
+          'incoming',
+          whatsappMessageId || null
+        ]
       );
 
-      console.log('Incoming WhatsApp message saved:', {
-        phone,
-        message
+      console.log('Incoming WhatsApp message saved', {
+        clientId,
+        phone
       });
     }
 
