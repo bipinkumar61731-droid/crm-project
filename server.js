@@ -823,7 +823,32 @@ await pool.query(`
   ALTER TABLE whatsapp_messages
   ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE
 `);
-  console.log('Database setup completed.');
+
+await pool.query(`
+  ALTER TABLE whatsapp_messages
+  ADD COLUMN IF NOT EXISTS client_id INTEGER
+`);
+
+await pool.query(`
+  ALTER TABLE whatsapp_messages
+  ADD COLUMN IF NOT EXISTS phone_number_id VARCHAR(100)
+`);
+
+await pool.query(`
+  CREATE TABLE IF NOT EXISTS client_whatsapp_settings (
+    id SERIAL PRIMARY KEY,
+    client_id INTEGER NOT NULL UNIQUE
+      REFERENCES clients(id) ON DELETE CASCADE,
+    phone_number_id VARCHAR(100) NOT NULL,
+    display_phone_number VARCHAR(50),
+    access_token TEXT NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+  )
+`);
+
+console.log('Database setup completed.');
 }
 
 /* LOGIN */
