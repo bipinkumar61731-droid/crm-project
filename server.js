@@ -3615,26 +3615,33 @@ app.post('/webhook/whatsapp', async function(req, res) {
 /* =========================
    WHATSAPP CHAT INBOX
 ========================= */
-
 app.get('/whatsapp', requireLogin, async function(req, res) {
   try {
     const search = String(req.query.search || '').trim();
     const selectedPhone = String(req.query.phone || '').trim();
+    const isAdmin = req.session.user.role === 'admin';
+    const clientId = req.session.user.client_id;
 
-    // Mark selected conversation as read first
+    // Mark only this client's incoming messages as read.
     if (selectedPhone) {
-      await pool.query(
-        `
+      const readParams = [selectedPhone];
+
+      let readQuery = `
         UPDATE whatsapp_messages
         SET is_read = true
         WHERE phone = $1
           AND direction = 'incoming'
-        `,
-        [selectedPhone]
-      );
+      `;
+
+      if (!isAdmin) {
+        readParams.push(clientId);
+        readQuery += ` AND client_id = $${readParams.length}`;
+      }
+
+      await pool.query(readQuery, readParams);
     }
 
-    // Conversation list
+    // Build conversation list query.
     let conversationsQuery = `
       SELECT
         phone,
@@ -3649,13 +3656,20 @@ app.get('/whatsapp', requireLogin, async function(req, res) {
     `;
 
     const params = [];
+    const filters = [];
+
+    if (!isAdmin) {
+      params.push(clientId);
+      filters.push(`client_id = $${params.length}`);
+    }
 
     if (search) {
       params.push('%' + search + '%');
+      filters.push(`phone ILIKE $${params.length}`);
+    }
 
-      conversationsQuery += `
-        WHERE phone ILIKE $1
-      `;
+    if (filters.length) {
+      conversationsQuery += ` WHERE ${filters.join(' AND ')}`;
     }
 
     conversationsQuery += `
@@ -3663,21 +3677,30 @@ app.get('/whatsapp', requireLogin, async function(req, res) {
       ORDER BY last_id DESC
     `;
 
-    const conversationsResult =
-      await pool.query(conversationsQuery, params);
+    const conversationsResult = await pool.query(
+      conversationsQuery,
+      params
+    );
 
+    // Open only a conversation visible to this user.
     let phone = selectedPhone;
 
-    if (!phone && conversationsResult.rows.length) {
-      phone = conversationsResult.rows[0].phone;
+    if (
+      !phone ||
+      !conversationsResult.rows.some(chat => chat.phone === phone)
+    ) {
+      phone = conversationsResult.rows.length
+        ? conversationsResult.rows[0].phone
+        : '';
     }
 
-    // Messages of selected conversation
+    // Load messages with the same client restriction.
     let messages = [];
 
     if (phone) {
-      const messageResult = await pool.query(
-        `
+      const messageParams = [phone];
+
+      let messageQuery = `
         SELECT
           id,
           phone,
@@ -3687,9 +3710,18 @@ app.get('/whatsapp', requireLogin, async function(req, res) {
           created_at
         FROM whatsapp_messages
         WHERE phone = $1
-        ORDER BY id ASC
-        `,
-        [phone]
+      `;
+
+      if (!isAdmin) {
+        messageParams.push(clientId);
+        messageQuery += ` AND client_id = $${messageParams.length}`;
+      }
+
+      messageQuery += ` ORDER BY id ASC`;
+
+      const messageResult = await pool.query(
+        messageQuery,
+        messageParams
       );
 
       messages = messageResult.rows;
