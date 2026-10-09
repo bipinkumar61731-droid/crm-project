@@ -4138,7 +4138,6 @@ app.get('/whatsapp', requireLogin, async function(req, res) {
 });
 app.post('/whatsapp/send', requireLogin, async function(req, res) {
   try {
-
     const to = String(req.body.to || '').trim();
     const message = String(req.body.message || '').trim();
 
@@ -4149,8 +4148,44 @@ app.post('/whatsapp/send', requireLogin, async function(req, res) {
       });
     }
 
-    const token = process.env.WHATSAPP_ACCESS_TOKEN;
-    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    const isAdmin = req.session.user.role === 'admin';
+    const clientId = req.session.user.client_id;
+
+    let token;
+    let phoneNumberId;
+
+    if (isAdmin) {
+      // Admin uses the existing global WhatsApp configuration.
+      token = process.env.WHATSAPP_ACCESS_TOKEN;
+      phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    } else {
+      // A client must have a valid client_id.
+      if (!clientId) {
+        return res.status(403).json({
+          success: false,
+          error: 'Client account is not linked correctly'
+        });
+      }
+
+      const settingsResult = await pool.query(
+        `SELECT phone_number_id, access_token
+         FROM client_whatsapp_settings
+         WHERE client_id = $1
+           AND is_active = TRUE
+         LIMIT 1`,
+        [clientId]
+      );
+
+      if (!settingsResult.rows.length) {
+        return res.status(403).json({
+          success: false,
+          error: 'WhatsApp is not configured for this client'
+        });
+      }
+
+      phoneNumberId = settingsResult.rows[0].phone_number_id;
+      token = settingsResult.rows[0].access_token;
+    }
 
     if (!token || !phoneNumberId) {
       return res.status(500).json({
@@ -4171,9 +4206,7 @@ app.post('/whatsapp/send', requireLogin, async function(req, res) {
           messaging_product: 'whatsapp',
           to: to,
           type: 'text',
-          text: {
-            body: message
-          }
+          text: { body: message }
         })
       }
     );
@@ -4187,18 +4220,23 @@ app.post('/whatsapp/send', requireLogin, async function(req, res) {
         error: data
       });
     }
-await pool.query(
-  `INSERT INTO whatsapp_messages
-   (phone, message, direction, whatsapp_message_id)
-   VALUES ($1, $2, $3, $4)`,
-  [
-    to,
-    message,
-    'outgoing',
-    data.messages?.[0]?.id || null
-  ]
-);
-    res.json({
+
+    await pool.query(
+      `INSERT INTO whatsapp_messages
+       (client_id, phone_number_id, phone, message,
+        direction, whatsapp_message_id)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        isAdmin ? null : clientId,
+        phoneNumberId,
+        to,
+        message,
+        'outgoing',
+        data.messages?.[0]?.id || null
+      ]
+    );
+
+    return res.json({
       success: true,
       message: 'WhatsApp message sent',
       data: data
@@ -4207,9 +4245,9 @@ await pool.query(
   } catch (err) {
     console.error('WhatsApp send error:', err);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      error: err.message
+      error: 'Unable to send WhatsApp message'
     });
   }
 });
