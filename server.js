@@ -3314,7 +3314,24 @@ app.get('/clients/:id/edit', requireAdmin, async function(req, res) {
 
           <label>Phone</label>
           <input name="phone" value="${esc(client.phone || '')}">
+<label>WhatsApp Phone Number ID</label>
+<input
+  name="wa_phone_number_id"
+  placeholder="WhatsApp Phone Number ID"
+>
 
+<label>WhatsApp Business Phone</label>
+<input
+  name="wa_display_phone"
+  placeholder="WhatsApp Business Phone"
+>
+
+<label>WhatsApp Access Token</label>
+<input
+  type="password"
+  name="wa_access_token"
+  placeholder="WhatsApp Access Token"
+>
           <button type="submit">Save Changes</button>
           <a href="/clients">Cancel</a>
         </form>
@@ -3332,33 +3349,113 @@ app.get('/clients/:id/edit', requireAdmin, async function(req, res) {
 });
 
 app.post('/clients/:id/edit', requireAdmin, async function(req, res) {
+  const db = await pool.connect();
+
   try {
     const id = Number(req.params.id);
     const name = String(req.body.name || '').trim();
     const email = String(req.body.email || '').trim();
     const phone = String(req.body.phone || '').trim();
 
+    const waPhoneNumberId = String(
+      req.body.wa_phone_number_id || ''
+    ).trim();
+
+    const waDisplayPhone = String(
+      req.body.wa_display_phone || ''
+    ).trim();
+
+    const waAccessToken = String(
+      req.body.wa_access_token || ''
+    ).trim();
+
     if (!Number.isInteger(id) || id <= 0 || !name) {
-      return res.status(400).send('Valid client ID and name are required');
+      return res.status(400).send(
+        'Valid client ID and name are required'
+      );
     }
 
-    const result = await pool.query(
+    await db.query('BEGIN');
+
+    const result = await db.query(
       `UPDATE clients
-       SET name=$1, email=$2, phone=$3
-       WHERE id=$4
+       SET name = $1, email = $2, phone = $3
+       WHERE id = $4
        RETURNING id`,
       [name, email || null, phone || null, id]
     );
 
     if (!result.rows[0]) {
+      await db.query('ROLLBACK');
       return res.status(404).send('Client not found');
     }
 
+    // Read existing WhatsApp settings.
+    const existingResult = await db.query(
+      `SELECT phone_number_id, display_phone_number, access_token
+       FROM client_whatsapp_settings
+       WHERE client_id = $1`,
+      [id]
+    );
+
+    const existing = existingResult.rows[0];
+
+    // Leave WhatsApp settings untouched if all fields are blank.
+    const waFieldsProvided =
+      waPhoneNumberId !== '' ||
+      waDisplayPhone !== '' ||
+      waAccessToken !== '';
+
+    if (waFieldsProvided) {
+      const finalPhoneNumberId =
+        waPhoneNumberId || (existing?.phone_number_id || '');
+
+      const finalAccessToken =
+        waAccessToken || (existing?.access_token || '');
+
+      const finalDisplayPhone =
+        waDisplayPhone ||
+        (existing?.display_phone_number || '');
+
+      if (!finalPhoneNumberId || !finalAccessToken) {
+        await db.query('ROLLBACK');
+        return res.status(400).send(
+          'WhatsApp Phone Number ID and Access Token are required for first-time setup.'
+        );
+      }
+
+      await db.query(
+        `INSERT INTO client_whatsapp_settings
+          (client_id, phone_number_id, display_phone_number,
+           access_token, is_active, updated_at)
+         VALUES ($1, $2, $3, $4, TRUE, NOW())
+         ON CONFLICT (client_id)
+         DO UPDATE SET
+           phone_number_id = EXCLUDED.phone_number_id,
+           display_phone_number = EXCLUDED.display_phone_number,
+           access_token = EXCLUDED.access_token,
+           is_active = TRUE,
+           updated_at = NOW()`,
+        [
+          id,
+          finalPhoneNumberId,
+          finalDisplayPhone || null,
+          finalAccessToken
+        ]
+      );
+    }
+
+    await db.query('COMMIT');
     res.redirect('/clients');
 
   } catch (err) {
+    await db.query('ROLLBACK').catch(() => {});
     console.error('Client edit save error:', err);
-    res.status(500).send('Unable to save client changes');
+    res.status(500).send(
+      'Unable to save client changes'
+    );
+  } finally {
+    db.release();
   }
 });
 /* API INFO */
