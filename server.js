@@ -1151,13 +1151,20 @@ whatsappMessagesResult
         isAdmin ? [] : [clientId]
       ),
 
-pool.query(`
-        SELECT id, phone, message, direction, created_at
-        FROM whatsapp_messages
-        ORDER BY id DESC
-        LIMIT 10
-      `)
-    ]);
+pool.query(
+  isAdmin
+    ? `SELECT id, phone, message, direction, created_at
+       FROM whatsapp_messages
+       ORDER BY id DESC
+       LIMIT 10`
+    : `SELECT id, phone, message, direction, created_at
+       FROM whatsapp_messages
+       WHERE client_id = $1
+       ORDER BY id DESC
+       LIMIT 10`,
+  isAdmin ? [] : [clientId]
+)
+ ]);
 
     const totalCustomers = customersResult.rows[0].count;
     const totalLeads = leadsResult.rows[0].count;
