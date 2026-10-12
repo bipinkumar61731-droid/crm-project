@@ -3263,51 +3263,69 @@ app.get('/clients', requireAdmin, async function(req, res) {
 
 
 app.post('/clients', requireAdmin, async function(req, res) {
+  const db = await pool.connect();
+
   try {
     const name = String(req.body.name || '').trim();
     const email = String(req.body.email || '').trim();
     const phone = String(req.body.phone || '').trim();
-const apiKey = crypto.randomBytes(32).toString('hex');
     const username = String(req.body.username || '').trim();
-    const password = String(req.body.password || '').trim();
-const hashedPassword = await bcrypt.hash(password, 12);
+    const password = String(req.body.password || '');
+
     if (!name) {
       return res.status(400).send('Client name required');
     }
 
-    if (!username || !password) {
+    if (!username || !password.trim()) {
       return res.status(400).send('Username and password required');
     }
 
-   const clientResult = await pool.query(
-  `
-  INSERT INTO clients(name, email, phone, status, api_key)
-  VALUES($1, $2, $3, 'active', $4)
-  RETURNING id
-  `,
-  [name, email, phone, apiKey]
-);
+    if (username.length > 100) {
+      return res.status(400).send('Username must be 100 characters or less');
+    }
+
+    if (password.length < 8) {
+      return res.status(400).send('Password must be at least 8 characters');
+    }
+
+    const apiKey = crypto.randomBytes(32).toString('hex');
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    await db.query('BEGIN');
+
+    const clientResult = await db.query(
+      `INSERT INTO clients(name, email, phone, status, api_key)
+       VALUES($1, $2, $3, 'active', $4)
+       RETURNING id`,
+      [name, email, phone, apiKey]
+    );
+
     const clientId = clientResult.rows[0].id;
 
-    await pool.query(
-      `
+    await db.query(
+      `INSERT INTO users(username, password, role, client_id)
+       VALUES($1, $2, 'client', $3)`,
+      [username, hashedPassword, clientId]
+    );
 
-INSERT INTO users(username, password, role, client_id)
-VALUES($1, $2, 'client', $3)
-`,
-[username, hashedPassword, clientId]
-);
-    res.redirect('/clients');
+    await db.query('COMMIT');
+    return res.redirect('/clients');
 
   } catch (err) {
+    await db.query('ROLLBACK').catch(() => {});
+
     console.error('Add client error:', err);
 
-    res.status(500).send(
-      'Unable to add client: ' + err.message
-    );
+    if (err.code === '23505') {
+      return res.status(400).send('Username already exists. Please choose another username.');
+    }
+
+    return res.status(500).send('Unable to add client. Please try again.');
+
+  } finally {
+    db.release();
   }
 });
-
 app.post('/clients/:id/status', requireAdmin, async function(req, res) {
   try {
     const status =
