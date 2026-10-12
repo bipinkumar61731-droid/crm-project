@@ -1,3 +1,5 @@
+
+const bcrypt = require('bcryptjs');
 const express = require('express');
 const session = require('express-session');
 const pg = require('pg');
@@ -791,14 +793,14 @@ await pool.query(`
     ALTER TABLE leads
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()
   `);
+
 await pool.query(
-    `INSERT INTO users(username,password,role)
-     VALUES($1,$2,$3)
-     ON CONFLICT(username)
-     DO UPDATE SET password=EXCLUDED.password,
-                   role=EXCLUDED.role`,
-    ['admin', 'Admin@123', 'admin']
-  );
+  `INSERT INTO users(username, password, role)
+   VALUES($1, $2, $3)
+   ON CONFLICT(username) DO NOTHING`,
+  ['admin', 'Admin@123', 'admin']
+);
+
 await pool.query(`
     CREATE TABLE IF NOT EXISTS whatsapp_messages (
       id SERIAL PRIMARY KEY,
@@ -958,19 +960,51 @@ ${error}
 
 app.post('/login', async function(req, res) {
 
-  try {
+   try {
+    const username = String(req.body.username || '').trim();
+    const password = String(req.body.password || '');
 
     const result = await pool.query(
-      'SELECT * FROM users WHERE username=$1 AND password=$2',
-      [req.body.username, req.body.password]
+      'SELECT * FROM users WHERE username=$1',
+      [username]
     );
 
-    if (!result.rows[0]) {
+    const user = result.rows[0];
+
+    if (!user || !password) {
       return res.redirect('/login?error=1');
     }
 
-    const user = result.rows[0];
-    if (user.role === 'client') {
+    let passwordValid = false;
+    const storedPassword = String(user.password || '');
+
+    if (
+      storedPassword.startsWith('$2a$') ||
+      storedPassword.startsWith('$2b$') ||
+      storedPassword.startsWith('$2y$')
+    ) {
+      passwordValid = await bcrypt.compare(
+        password,
+        storedPassword
+      );
+    } else {
+      passwordValid = password === storedPassword;
+
+      if (passwordValid) {
+        const hashedPassword = await bcrypt.hash(password, 12);
+
+        await pool.query(
+          'UPDATE users SET password=$1 WHERE id=$2 AND password=$3',
+          [hashedPassword, user.id, storedPassword]
+        );
+      }
+    }
+
+    if (!passwordValid) {
+      return res.redirect('/login?error=1');
+    }
+
+          if (user.role === 'client') {
       const clientResult = await pool.query(
         'SELECT status FROM clients WHERE id=$1',
         [user.client_id]
@@ -3026,73 +3060,78 @@ ${rows}
 });
 
 app.post('/staff/add', requireAdmin, async function(req, res) {
-
   try {
+    const username = String(req.body.username || '').trim();
+    const password = String(req.body.password || '');
+
+    if (!username || !password) {
+      return res.status(400).send('Username and password required');
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 12);
 
     await pool.query(
-      `INSERT INTO users(username,password,role)
-       VALUES($1,$2,$3)`,
+      `INSERT INTO users(username, password, role)
+       VALUES($1, $2, $3)`,
       [
-        String(req.body.username || '').trim(),
-        String(req.body.password || ''),
+        username,
+        hashedPassword,
         req.body.role === 'admin' ? 'admin' : 'staff'
       ]
     );
 
     res.redirect('/staff');
-
   } catch (err) {
-
     console.error(err);
-
     res.status(500).send(
       'Add staff error: ' + esc(err.message)
     );
   }
-
 });
 app.post('/staff/reset-password/:id', requireAdmin, async function(req, res) {
-
   try {
-
     const userId = Number(req.params.id);
     const newPassword = String(req.body.password || '');
+
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).send('Invalid user ID');
+    }
 
     if (!newPassword) {
       return res.status(400).send('Password required');
     }
 
-    await pool.query(
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+
+    const result = await pool.query(
       `UPDATE users
-       SET password=$1
-       WHERE id=$2`,
-      [newPassword, userId]
+       SET password = $1
+       WHERE id = $2`,
+      [hashedPassword, userId]
     );
 
+    if (result.rowCount === 0) {
+      return res.status(404).send('User not found');
+    }
+
     res.redirect('/staff');
-
   } catch (err) {
-
     console.error(err);
-
     res.status(500).send(
       'Reset password error: ' + esc(err.message)
     );
   }
-
 });
+
 /* =========================
    CLIENT MANAGEMENT
 ========================= */
 
 app.get('/clients', requireAdmin, async function(req, res) {
   try {
-    const result = await pool.query(`
-      SELECT id, name, email, phone, status, api_key, created_at
-FROM clients
-      ORDER BY id DESC
-    `);
-
+        const result = await pool.query(
+      "SELECT id, name, email, phone, status, api_key, created_at FROM clients ORDER BY id DESC"
+    );
     let rows = '';
 
     result.rows.forEach(function(client) {
@@ -3224,7 +3263,7 @@ app.post('/clients', requireAdmin, async function(req, res) {
 const apiKey = crypto.randomBytes(32).toString('hex');
     const username = String(req.body.username || '').trim();
     const password = String(req.body.password || '').trim();
-
+const hashedPassword = await bcrypt.hash(password, 12);
     if (!name) {
       return res.status(400).send('Client name required');
     }
@@ -3245,12 +3284,12 @@ const apiKey = crypto.randomBytes(32).toString('hex');
 
     await pool.query(
       `
-      INSERT INTO users(username, password, role, client_id)
-      VALUES($1, $2, 'client', $3)
-      `,
-      [username, password, clientId]
-    );
 
+INSERT INTO users(username, password, role, client_id)
+VALUES($1, $2, 'client', $3)
+`,
+[username, hashedPassword, clientId]
+);
     res.redirect('/clients');
 
   } catch (err) {
