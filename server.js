@@ -1784,7 +1784,7 @@ app.post('/customers/edit/:id', requireLogin, async function(req, res) {
           req.body.address || '',
           customerId
         ]
-      );S
+      );
 
     } else {
 
