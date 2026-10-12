@@ -793,23 +793,31 @@ await pool.query(`
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()
   `);
 
-await pool.query(
-  `INSERT INTO users(username, password, role)
-   VALUES($1, $2, $3)
-   ON CONFLICT(username) DO NOTHING`,
-  ['admin', 'Admin@123', 'admin']
-);
 
-await pool.query(`
-    CREATE TABLE IF NOT EXISTS whatsapp_messages (
-      id SERIAL PRIMARY KEY,
-      phone VARCHAR(50) NOT NULL,
-      message TEXT,
-      direction VARCHAR(20) NOT NULL,
-      whatsapp_message_id VARCHAR(255),
-      created_at TIMESTAMP DEFAULT NOW()
-    )
-  `);
+const adminPassword = process.env.ADMIN_PASSWORD;
+
+if (!adminPassword) {
+  throw new Error('ADMIN_PASSWORD environment variable is required');
+}
+
+const hashedAdminPassword = await bcrypt.hash(adminPassword, 12);
+
+if (process.env.ADMIN_PASSWORD_RESET === 'true') {
+  await pool.query(
+    `INSERT INTO users(username, password, role)
+     VALUES($1, $2, $3)
+     ON CONFLICT(username)
+     DO UPDATE SET password = EXCLUDED.password`,
+    ['admin', hashedAdminPassword, 'admin']
+  );
+} else {
+  await pool.query(
+    `INSERT INTO users(username, password, role)
+     VALUES($1, $2, $3)
+     ON CONFLICT(username) DO NOTHING`,
+    ['admin', hashedAdminPassword, 'admin']
+  );
+}
 await pool.query(`
     CREATE TABLE IF NOT EXISTS whatsapp_messages (
       id SERIAL PRIMARY KEY,
