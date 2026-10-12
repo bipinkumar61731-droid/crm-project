@@ -89,8 +89,7 @@ async function requireApiKey(req, res, next) {
 
 }
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'crm-secret-change-this',
-  resave: false,
+  secret: process.env.SESSION_SECRET,  resave: false,
   saveUninitialized: false,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
