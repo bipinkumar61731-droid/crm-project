@@ -4052,7 +4052,7 @@ app.get('/whatsapp', requireLogin, async function(req, res) {
 
           <!-- MESSAGES -->
 
-          <div class="wa-messages">
+          <div class="wa-messages" id="waMessages">
 
             ${
               messageRows ||
@@ -4109,6 +4109,108 @@ app.get('/whatsapp', requireLogin, async function(req, res) {
 
                 <script>
 
+const waSelectedPhone = ${JSON.stringify(phone)};
+let waLastMessageId = ${messages.length ? Number(messages[messages.length - 1].id) : 0};
+let waPollingInProgress = false;
+
+async function pollWhatsAppUpdates() {
+  const container = document.getElementById('waMessages');
+
+  if (!container || !waSelectedPhone || waPollingInProgress) {
+    return;
+  }
+
+  waPollingInProgress = true;
+
+  try {
+    const response = await fetch(
+      '/whatsapp/updates?phone=' +
+      encodeURIComponent(waSelectedPhone) +
+      '&after=' + waLastMessageId
+    );
+
+    if (!response.ok) return;
+
+    const data = await response.json();
+
+    if (!data.success || !Array.isArray(data.messages)) {
+      return;
+    }
+
+    for (const msg of data.messages) {
+      const id = Number(msg.id);
+
+      if (!Number.isSafeInteger(id) || id <= waLastMessageId) {
+        continue;
+      }
+
+      const emptyMessage = container.querySelector(
+        'div[style*="text-align:center"]'
+      );
+
+      if (emptyMessage) {
+        emptyMessage.remove();
+      }
+
+      const incoming = msg.direction === 'incoming';
+
+      const row = document.createElement('div');
+      row.style.display = 'flex';
+      row.style.justifyContent = incoming ? 'flex-start' : 'flex-end';
+      row.style.marginBottom = '10px';
+
+      const bubble = document.createElement('div');
+      bubble.style.maxWidth = '75%';
+      bubble.style.padding = '11px 14px';
+      bubble.style.borderRadius = '14px';
+      bubble.style.background = incoming ? '#1e293b' : '#166534';
+      bubble.style.color = 'white';
+
+      const text = document.createElement('div');
+      text.style.fontSize = '14px';
+      text.style.lineHeight = '1.45';
+      text.style.whiteSpace = 'pre-wrap';
+      text.textContent = msg.message || '-';
+
+      const time = document.createElement('div');
+      time.style.fontSize = '10px';
+      time.style.color = '#cbd5e1';
+      time.style.marginTop = '5px';
+      time.style.textAlign = 'right';
+
+      time.textContent = new Date(msg.created_at).toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+
+      bubble.appendChild(text);
+      bubble.appendChild(time);
+      row.appendChild(bubble);
+      container.appendChild(row);
+
+      waLastMessageId = id;
+    }
+
+    if (data.messages.length > 0) {
+      container.scrollTop = container.scrollHeight;
+    }
+
+  } catch (err) {
+    console.error('WhatsApp live update error:', err);
+  } finally {
+    waPollingInProgress = false;
+  }
+}
+
+pollWhatsAppUpdates();
+setInterval(pollWhatsAppUpdates, 3000);
+
+
                   async function sendWhatsAppMessage(event) {
 
                     event.preventDefault();
@@ -4162,8 +4264,6 @@ app.get('/whatsapp', requireLogin, async function(req, res) {
 
                       input.value = '';
 
-                      location.reload();
-
                     } catch(err) {
 
                       alert(
@@ -4211,6 +4311,71 @@ app.get('/whatsapp', requireLogin, async function(req, res) {
 
   }
 });
+
+app.get('/whatsapp/updates', requireLogin, async function(req, res) {
+  try {
+    const phone = String(req.query.phone || '').trim();
+    const after = Number(req.query.after || 0);
+
+    if (
+      !phone ||
+      !Number.isSafeInteger(after) ||
+      after < 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid phone or message ID'
+      });
+    }
+
+    const isAdmin = req.session.user.role === 'admin';
+    const clientId = req.session.user.client_id;
+
+    let query = `
+      SELECT
+        id,
+        phone,
+        message,
+        direction,
+        created_at
+      FROM whatsapp_messages
+      WHERE phone = $1
+        AND id > $2
+    `;
+
+    const params = [phone, after];
+
+    if (!isAdmin) {
+      if (!clientId) {
+        return res.status(403).json({
+          success: false,
+          error: 'Client account is not linked correctly'
+        });
+      }
+
+      params.push(clientId);
+      query += ` AND client_id = $${params.length}`;
+    }
+
+    query += ` ORDER BY id ASC LIMIT 100`;
+
+    const result = await pool.query(query, params);
+
+    return res.json({
+      success: true,
+      messages: result.rows
+    });
+
+  } catch (err) {
+    console.error('WhatsApp updates error:', err);
+
+    return res.status(500).json({
+      success: false,
+      error: 'Could not load new messages'
+    });
+  }
+});
+
 app.post('/whatsapp/send', requireLogin, async function(req, res) {
   try {
     const to = String(req.body.to || '').trim();
