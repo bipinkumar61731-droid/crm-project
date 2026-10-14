@@ -157,8 +157,8 @@ function requireAdmin(req, res, next) {
 
   next();
 }
-function page(title, content, active, role) {const nav = [
-    ['/', 'Dashboard', 'dashboard'],
+function page(title, content, active, role, displayName = '') {
+  const nav = [    ['/', 'Dashboard', 'dashboard'],
     ['/customers', 'Customers', 'customers'],
     ['/leads', 'Leads', 'leads'],
     ['/followups', 'Follow-ups', 'followups'],
@@ -604,8 +604,8 @@ textarea:focus{
 <div class="topbar">
   <h1>${esc(title)}</h1>
   <div class="user-box">
-    👤${esc(role === 'admin' ? 'Admin' : 'Client')}  </div>
-</div>
+  ${role === 'admin' ? '💖 Vipin_0_6 🖤' : '☠️ vipin_B2B ⚠️'}
+</div></div>
 
 ${content}
 
