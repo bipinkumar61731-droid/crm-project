@@ -3902,11 +3902,16 @@ app.get('/whatsapp', requireLogin, async function(req, res) {
                 text-align:right;
               ">
                 ${esc(
-                  new Date(
-                    msg.created_at
-                  ).toLocaleString()
-                )}
-              </div>
+  new Date(msg.created_at).toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  })
+)}              </div>
 
             </div>
 
