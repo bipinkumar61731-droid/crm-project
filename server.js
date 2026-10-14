@@ -1723,12 +1723,14 @@ async function sendWhatsAppMessage(event) {
       </div>
     `;
 
-   res.send(
+  res.send(
   page(
     'Dashboard',
     content,
     'dashboard',
-    req.session.user.role
+    req.session.user.role === 'admin'
+      ? '💖 Vipin_0_6 🖤'
+      : '☠️ vipin_B2B ⚠️'
   )
 );
   } catch (err) {
