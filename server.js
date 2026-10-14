@@ -1519,8 +1519,7 @@ const whatsappMessages = whatsappMessagesResult.rows;
         </div>
 
         <div class="dash-actions">
-          <a class="dash-btn" href="/leads/add">+ Add Lead</a>
-          <a class="dash-btn secondary" href="/customers/add">+ Customer</a>
+          <a class="dash-btn" href="/leads?add=1">+ Add Lead</a>          <a class="dash-btn secondary" href="/customers/add">+ Customer</a>
         </div>
       </div>
 
@@ -1554,8 +1553,7 @@ const whatsappMessages = whatsappMessagesResult.rows;
 <div class="quick-actions">
   <h2>⚡ Quick Actions</h2>
   <div class="action-buttons">
-    <a href="/leads/add" class="action-btn">➕ Add Lead</a>
-    <a href="/customers/add" class="action-btn">👤 Add Customer</a>
+   <a href="/leads?add=1" class="action-btn">➕ Add Lead</a>    <a href="/customers/add" class="action-btn">👤 Add Customer</a>
     <a href="/followups" class="action-btn">📅 Follow-ups</a>
     <a href="/api-info" class="action-btn">🔗 API Info</a>
   </div>
