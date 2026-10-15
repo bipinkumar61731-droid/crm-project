@@ -26,13 +26,12 @@ const pool = new Pool({
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+
 async function requireApiKey(req, res, next) {
-
   try {
-
     const apiKey = req.headers['x-api-key'];
 
-    if (!apiKey) {
+    if (typeof apiKey !== 'string' || !apiKey.trim()) {
       return res.status(401).json({
         success: false,
         error: 'API key is required'
@@ -41,19 +40,16 @@ async function requireApiKey(req, res, next) {
 
     const validApiKey = process.env.CRM_API_KEY;
 
-    // Global API key
+    // Global API key: admin-level API access
     if (validApiKey && apiKey === validApiKey) {
       req.apiClientId = null;
+      req.apiRole = 'admin';
       return next();
     }
 
-    // Client API key
+    // Client-specific API key
     const result = await pool.query(
-      `
-      SELECT id, status
-      FROM clients
-      WHERE api_key=$1
-      `,
+      `SELECT id, status FROM clients WHERE api_key = $1`,
       [apiKey]
     );
 
@@ -74,19 +70,17 @@ async function requireApiKey(req, res, next) {
     }
 
     req.apiClientId = client.id;
-    next();
+    req.apiRole = 'client';
 
+    return next();
   } catch (err) {
-
     console.error('API authentication error:', err);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'API authentication failed'
     });
-
   }
-
 }
 app.use(session({
   secret: process.env.SESSION_SECRET,  resave: false,
@@ -4516,87 +4510,81 @@ app.get('/health', async function(req, res) {
 
 app.get('/api/customers', requireApiKey, async function(req, res) {
   try {
-
     let result;
 
-    if (req.apiClientId) {
-
-      result = await pool.query(
-        `
-        SELECT *
-        FROM customers
-        WHERE client_id=$1
-        ORDER BY created_at DESC
-        `,
-        [req.apiClientId]
-      );
-
-    } else {
-
+    if (req.apiRole === 'admin') {
       result = await pool.query(`
         SELECT *
         FROM customers
         ORDER BY created_at DESC
       `);
-
+    } else if (req.apiRole === 'client' && req.apiClientId) {
+      result = await pool.query(
+        `
+        SELECT *
+        FROM customers
+        WHERE client_id = $1
+        ORDER BY created_at DESC
+        `,
+        [req.apiClientId]
+      );
+    } else {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied'
+      });
     }
 
-    res.json({
+    return res.json({
       success: true,
       count: result.rows.length,
       customers: result.rows
     });
-
   } catch (err) {
+    console.error('API customer list error:', err);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      error: err.message
+      error: 'Could not load customers'
     });
-
   }
-
 });
+
 app.post('/api/customers', requireApiKey, async function(req, res) {
-
   try {
-
     const name = String(req.body.name || '').trim();
 
     if (!name) {
-
       return res.status(400).json({
         success: false,
         error: 'name is required'
       });
-
     }
 
     let clientId;
 
-    if (req.apiClientId) {
-
-      clientId = req.apiClientId;
-
-    } else {
-
+    if (req.apiRole === 'admin') {
       clientId = Number(req.body.client_id);
 
-      if (!clientId) {
-
+      if (!Number.isSafeInteger(clientId) || clientId <= 0) {
         return res.status(400).json({
           success: false,
-          error: 'client_id is required'
+          error: 'valid client_id is required'
         });
-
       }
-
+    } else if (req.apiRole === 'client' && req.apiClientId) {
+      clientId = req.apiClientId;
+    } else {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied'
+      });
     }
 
     const result = await pool.query(
       `INSERT INTO customers
-       (client_id,name,phone,email,address)
-       VALUES($1,$2,$3,$4,$5)
+       (client_id, name, phone, email, address)
+       VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
       [
         clientId,
@@ -4607,84 +4595,48 @@ app.post('/api/customers', requireApiKey, async function(req, res) {
       ]
     );
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       customer: result.rows[0]
     });
-
   } catch (err) {
-
     console.error('API customer add error:', err);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      error: err.message
+      error: 'Could not add customer'
     });
-
   }
-
 });
 
+
 app.put('/api/customers/:id', requireApiKey, async function(req, res) {
-
   try {
-
     const customerId = Number(req.params.id);
 
-    if (!customerId) {
-
+    if (!Number.isSafeInteger(customerId) || customerId <= 0) {
       return res.status(400).json({
         success: false,
         error: 'valid customer id is required'
       });
-
     }
 
     const name = String(req.body.name || '').trim();
 
     if (!name) {
-
       return res.status(400).json({
         success: false,
         error: 'name is required'
       });
-
     }
 
     let result;
 
-    if (req.apiClientId) {
-
+    if (req.apiRole === 'admin') {
       result = await pool.query(
         `
         UPDATE customers
-        SET name=$1,
-            phone=$2,
-            email=$3,
-            address=$4
-        WHERE id=$5
-          AND client_id=$6
-        RETURNING *
-        `,
-        [
-          name,
-          req.body.phone || '',
-          req.body.email || '',
-          req.body.address || '',
-          customerId,
-          req.apiClientId
-        ]
-      );
-
-    } else {
-
-      result = await pool.query(
-        `
-        UPDATE customers
-        SET name=$1,
-            phone=$2,
-            email=$3,
-            address=$4
+        SET name=$1, phone=$2, email=$3, address=$4
         WHERE id=$5
         RETURNING *
         `,
@@ -4696,108 +4648,111 @@ app.put('/api/customers/:id', requireApiKey, async function(req, res) {
           customerId
         ]
       );
-
+    } else if (req.apiRole === 'client' && req.apiClientId) {
+      result = await pool.query(
+        `
+        UPDATE customers
+        SET name=$1, phone=$2, email=$3, address=$4
+        WHERE id=$5 AND client_id=$6
+        RETURNING *
+        `,
+        [
+          name,
+          req.body.phone || '',
+          req.body.email || '',
+          req.body.address || '',
+          customerId,
+          req.apiClientId
+        ]
+      );
+    } else {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied'
+      });
     }
 
     if (!result.rows[0]) {
-
       return res.status(404).json({
         success: false,
         error: 'Customer not found'
       });
-
     }
 
-    res.json({
+    return res.json({
       success: true,
       customer: result.rows[0]
     });
-
   } catch (err) {
-
     console.error('API customer update error:', err);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      error: err.message
+      error: 'Could not update customer'
     });
-
   }
 });
+
+
 app.delete('/api/customers/:id', requireApiKey, async function(req, res) {
-
   try {
-
     const customerId = Number(req.params.id);
 
-    if (!customerId) {
-
+    if (!Number.isSafeInteger(customerId) || customerId <= 0) {
       return res.status(400).json({
         success: false,
         error: 'valid customer id is required'
       });
-
     }
 
     let result;
 
-    if (req.apiClientId) {
-
+    if (req.apiRole === 'admin') {
       result = await pool.query(
         `
         DELETE FROM customers
         WHERE id=$1
-          AND client_id=$2
         RETURNING *
         `,
-        [
-          customerId,
-          req.apiClientId
-        ]
+        [customerId]
       );
-
+    } else if (req.apiRole === 'client' && req.apiClientId) {
+      result = await pool.query(
+        `
+        DELETE FROM customers
+        WHERE id=$1 AND client_id=$2
+        RETURNING *
+        `,
+        [customerId, req.apiClientId]
+      );
     } else {
-
-      result = await pool.query(
-        `
-        DELETE FROM customers
-        WHERE id=$1
-        RETURNING *
-        `,
-        [
-          customerId
-        ]
-      );
-
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied'
+      });
     }
 
     if (!result.rows[0]) {
-
       return res.status(404).json({
         success: false,
         error: 'Customer not found'
       });
-
     }
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Customer deleted successfully',
       customer: result.rows[0]
     });
-
   } catch (err) {
-
     console.error('API customer delete error:', err);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      error: err.message
+      error: 'Could not delete customer'
     });
-
   }
-
-  });
+});
 app.put('/api/leads/:id', requireApiKey, async function(req, res) {
 
   try {

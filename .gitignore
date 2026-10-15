@@ -1,6 +1,17 @@
+
 node_modules/
+
+# Environment and secret files
+.env
+.env.*
+!.env.example
+cookies.txt
+
+# Database files
 *.db
+
+# Backup files
+server-backup*.js
 .envserver-backup.js
 server-backup.js
-
-.env
+review.txt
