@@ -787,6 +787,11 @@ await pool.query(`
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()
   `);
 
+  await pool.query(`
+    ALTER TABLE leads
+    ADD COLUMN IF NOT EXISTS follow_up_completed BOOLEAN NOT NULL DEFAULT FALSE
+  `);
+
 
 const adminPassword = process.env.ADMIN_PASSWORD;
 
@@ -2913,71 +2918,147 @@ app.post('/leads/delete/:id', requireLogin, async function(req, res) {
 
 });
 
+
 /* FOLLOW UPS */
+
+// Mark a follow-up as completed
+app.post('/followups/:id/complete', requireLogin, async function(req, res) {
+  try {
+    const isAdmin = req.session.user.role === 'admin';
+    const clientId = req.session.user.client_id;
+    const leadId = Number(req.params.id);
+
+    if (!Number.isInteger(leadId) || leadId <= 0) {
+      return res.status(400).send('Invalid lead ID');
+    }
+
+    let result;
+
+    if (isAdmin) {
+      result = await pool.query(
+        `UPDATE leads
+         SET follow_up_completed = TRUE
+         WHERE id = $1 AND follow_up IS NOT NULL`,
+        [leadId]
+      );
+    } else {
+      result = await pool.query(
+        `UPDATE leads
+         SET follow_up_completed = TRUE
+         WHERE id = $1
+           AND client_id = $2
+           AND follow_up IS NOT NULL`,
+        [leadId, clientId]
+      );
+    }
+
+    if (result.rowCount === 0) {
+      return res.status(404).send('Follow-up not found');
+    }
+
+    res.redirect('/followups?filter=completed');
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Could not complete follow-up');
+  }
+});
+
 
 app.get('/followups', requireLogin, async function(req, res) {
   try {
     const isAdmin = req.session.user.role === 'admin';
     const clientId = req.session.user.client_id;
+    const filter = ['today', 'pending', 'overdue', 'completed', 'all']
+      .includes(req.query.filter) ? req.query.filter : 'all';
 
-    let result;
+    const conditions = ['follow_up IS NOT NULL'];
+    const params = [];
 
-    if (isAdmin) {
-      result = await pool.query(`
-        SELECT *
-        FROM leads
-        WHERE follow_up IS NOT NULL
-          AND status NOT IN ('Converted', 'Lost')
-        ORDER BY follow_up ASC
-      `);
-    } else {
-      result = await pool.query(
-        `
-        SELECT *
-        FROM leads
-        WHERE follow_up IS NOT NULL
-          AND status NOT IN ('Converted', 'Lost')
-          AND client_id = $1
-        ORDER BY follow_up ASC
-        `,
-        [clientId]
-      );
+    if (!isAdmin) {
+      params.push(clientId);
+      conditions.push(`client_id = $${params.length}`);
     }
+
+    if (filter === 'completed') {
+      conditions.push('follow_up_completed = TRUE');
+    } else {
+      conditions.push('COALESCE(follow_up_completed, FALSE) = FALSE');
+
+      if (filter !== 'all') {
+        conditions.push(`status NOT IN ('Converted', 'Lost')`);
+      }
+
+      if (filter === 'today') {
+        conditions.push('follow_up = CURRENT_DATE');
+      } else if (filter === 'pending') {
+        conditions.push('follow_up > CURRENT_DATE');
+      } else if (filter === 'overdue') {
+        conditions.push('follow_up < CURRENT_DATE');
+      }
+    }
+
+    const result = await pool.query(
+      `SELECT *
+       FROM leads
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY follow_up ASC`,
+      params
+    );
 
     let rows = '';
 
     result.rows.forEach(function(lead) {
-      const date = new Date(lead.follow_up)
-        .toISOString()
-        .slice(0, 10);
-
-      const overdue = new Date(lead.follow_up) < new Date();
+      const date = String(lead.follow_up).slice(0, 10);
+      const isCompleted = lead.follow_up_completed === true;
 
       rows += `
         <tr>
           <td>${esc(lead.name)}</td>
-          <td>${esc(lead.phone)}</td>
-          <td>${esc(lead.status)}</td>
+          <td>${esc(lead.phone || '')}</td>
+          <td>${esc(lead.status || '')}</td>
           <td>
             <span class="badge">${esc(date)}</span>
-            ${overdue ? '<span class="badge">Overdue</span>' : ''}
+            ${!isCompleted && date < new Date().toISOString().slice(0, 10)
+              ? '<span class="badge">Overdue</span>'
+              : ''}
           </td>
           <td>
-            <a class="btn btn-gray" href="/leads?edit=${lead.id}">
-              Open
-            </a>
+            <a class="btn btn-gray" href="/leads?edit=${lead.id}">Open</a>
+            ${
+              isCompleted
+                ? '<span class="badge">Completed</span>'
+                : `<form method="POST" action="/followups/${lead.id}/complete" style="display:inline">
+                     <button class="btn" type="submit">Mark Complete</button>
+                   </form>`
+            }
           </td>
         </tr>
       `;
     });
 
     if (!rows) {
-      rows = '<tr><td colspan="5" class="muted">No follow-ups scheduled.</td></tr>';
+      rows = '<tr><td colspan="5" class="muted">No follow-ups found for this filter.</td></tr>';
     }
+
+    const filters = [
+      ['all', 'All'],
+      ['today', 'Today'],
+      ['pending', 'Pending'],
+      ['overdue', 'Overdue'],
+      ['completed', 'Completed']
+    ];
+
+    const filterLinks = filters.map(function(item) {
+      const active = filter === item[0] ? 'btn' : 'btn btn-gray';
+      return `<a class="${active}" href="/followups?filter=${item[0]}">${item[1]}</a>`;
+    }).join(' ');
 
     const content = `
       <div class="card">
-        <h2>Follow-up List</h2>
+        <h2>Follow-up Management</h2>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+          ${filterLinks}
+        </div>
         <div class="table-wrap">
           <table>
             <thead>
