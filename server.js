@@ -4554,14 +4554,12 @@ app.get('/whatsapp/updates', requireLogin, async function(req, res) {
     const params = [phone, after];
 
     if (!isAdmin) {
-      if (!clientId) {
-        return res.status(403).json({
-          success: false,
-          error: 'Client account is not linked correctly'
-        });
-      }
-
-      params.push(clientId);
+      if (!Number.isSafeInteger(clientId) || clientId <= 0) {
+  return res.status(400).json({
+    success: false,
+    error: 'valid client_id is required'
+  });
+}      params.push(clientId);
       query += ` AND client_id = $${params.length}`;
     }
 
