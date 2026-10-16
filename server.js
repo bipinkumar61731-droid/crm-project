@@ -1801,8 +1801,10 @@ app.post('/customers/edit/:id', requireLogin, async function(req, res) {
     const customerId = Number(req.params.id);
     const isAdmin = req.session.user.role === 'admin';
     const clientId = req.session.user.client_id;
-
-    if (isAdmin) {
+if (!isAdmin && !clientId) {
+  return res.status(403).send('Access denied');
+}
+   if (isAdmin) {
 
       await pool.query(
         `UPDATE customers
@@ -1857,9 +1859,14 @@ app.post('/customers/delete/:id', requireLogin, async function(req, res) {
   try {
 
     const customerId = Number(req.params.id);
+if (!Number.isSafeInteger(customerId) || customerId <= 0) {
+  return res.status(400).send('Invalid customer ID');
+}
     const isAdmin = req.session.user.role === 'admin';
     const clientId = req.session.user.client_id;
-
+if (!isAdmin && !clientId) {
+  return res.status(403).send('Access denied');
+}
     if (isAdmin) {
 
       await pool.query(
@@ -1903,10 +1910,7 @@ app.get('/customers', requireLogin, async function(req, res) {
 
     const isAdmin = req.session.user.role === 'admin';
     const clientId = req.session.user.client_id;
-
-    let result;
-
-    if (search) {
+     if (search) {
 
       if (isAdmin) {
 
@@ -2708,13 +2712,21 @@ app.post('/leads/edit/:id', requireLogin, async function(req, res) {
 
   try {
 
-    const leadId = Number(req.params.id);
+   const leadId = Number(req.params.id);
+
+if (!Number.isSafeInteger(leadId) || leadId <= 0) {
+  return res.status(400).send('Invalid lead ID');
+}
 const isAdmin = req.session.user.role === 'admin';
 const clientId = req.session.user.client_id;
+if (!isAdmin && !clientId) {
+  return res.status(403).send('Access denied');
+}
 
+let result;
 if (isAdmin) {
 
-  await pool.query(
+  result = await pool.query(
     `UPDATE leads
      SET name=$1,
          phone=$2,
@@ -2738,8 +2750,8 @@ if (isAdmin) {
 
 } else {
 
-  await pool.query(
-    `UPDATE leads
+  result = await pool.query(
+      `UPDATE leads
      SET name=$1,
          phone=$2,
          email=$3,
@@ -2763,6 +2775,9 @@ if (isAdmin) {
   );
 
 }
+if (result.rowCount === 0) {
+  return res.status(404).send('Lead not found or access denied');
+}
     res.redirect('/leads');
 
   } catch (err) {
@@ -2780,34 +2795,49 @@ app.post('/leads/delete/:id', requireLogin, async function(req, res) {
 
   try {
 
-const leadId = Number(req.params.id);
-const isAdmin = req.session.user.role === 'admin';
-const clientId = req.session.user.client_id;
+    const leadId = Number(req.params.id);
 
-if (isAdmin) {
+    if (!Number.isSafeInteger(leadId) || leadId <= 0) {
+      return res.status(400).send('Invalid lead ID');
+    }
 
-  await pool.query(
-    'DELETE FROM leads WHERE id=$1',
-    [leadId]
-  );
+    const isAdmin = req.session.user.role === 'admin';
+    const clientId = req.session.user.client_id;
 
-} else {
+    let result;
 
-  await pool.query(
-    'DELETE FROM leads WHERE id=$1 AND client_id=$2',
-    [leadId, clientId]
-  );
+    if (isAdmin) {
 
-}
+      result = await pool.query(
+        'DELETE FROM leads WHERE id=$1',
+        [leadId]
+      );
+
+    } else {
+
+      if (!clientId) {
+        return res.status(403).send('Access denied');
+      }
+
+      result = await pool.query(
+        'DELETE FROM leads WHERE id=$1 AND client_id=$2',
+        [leadId, clientId]
+      );
+
+    }
+
+    if (result.rowCount === 0) {
+      return res.status(404).send('Lead not found or access denied');
+    }
+
     res.redirect('/leads');
 
   } catch (err) {
 
-    console.error(err);
+    console.error('Delete lead error:', err);
 
-    res.status(500).send(
-      'Delete lead error: ' + esc(err.message)
-    );
+    res.status(500).send('Could not delete lead');
+
   }
 
 });
@@ -2815,132 +2845,94 @@ if (isAdmin) {
 /* FOLLOW UPS */
 
 app.get('/followups', requireLogin, async function(req, res) {
-
   try {
+    const isAdmin = req.session.user.role === 'admin';
+    const clientId = req.session.user.client_id;
 
-   const isAdmin = req.session.user.role === 'admin';
-const clientId = req.session.user.client_id;
+    let result;
 
-let result;
+    if (isAdmin) {
+      result = await pool.query(`
+        SELECT *
+        FROM leads
+        WHERE follow_up IS NOT NULL
+          AND status NOT IN ('Converted', 'Lost')
+        ORDER BY follow_up ASC
+      `);
+    } else {
+      result = await pool.query(
+        `
+        SELECT *
+        FROM leads
+        WHERE follow_up IS NOT NULL
+          AND status NOT IN ('Converted', 'Lost')
+          AND client_id = $1
+        ORDER BY follow_up ASC
+        `,
+        [clientId]
+      );
+    }
 
-if (isAdmin) {
-
-  result = await pool.query(`
-    SELECT *
-    FROM leads
-    WHERE follow_up IS NOT NULL
-    AND status NOT IN ('Converted','Lost')
-    ORDER BY follow_up ASC
-  `);
-
-} else {
-
-  result = await pool.query(
-    `
-    SELECT *
-    FROM leads
-    WHERE follow_up IS NOT NULL
-    AND status NOT IN ('Converted','Lost')
-    AND client_id=$1
-    ORDER BY follow_up ASC
-    `,
-    [clientId]
-  );
-
-}
     let rows = '';
 
     result.rows.forEach(function(lead) {
-
       const date = new Date(lead.follow_up)
         .toISOString()
-        .slice(0,10);
+        .slice(0, 10);
 
-      const overdue =
-        new Date(lead.follow_up) < new Date();
+      const overdue = new Date(lead.follow_up) < new Date();
 
       rows += `
-      <tr>
-
-      <td>${esc(lead.name)}</td>
-
-      <td>${esc(lead.phone)}</td>
-
-      <td>${esc(lead.status)}</td>
-
-      <td>
-      <span class="badge">
-      ${esc(date)}
-      </span>
-      ${overdue ? '<span class="badge">Overdue</span>' : ''}
-      </td>
-
-      <td>
-      <a class="btn btn-gray"
-         href="/leads?edit=${lead.id}">
-      Open
-      </a>
-      </td>
-
-      </tr>
+        <tr>
+          <td>${esc(lead.name)}</td>
+          <td>${esc(lead.phone)}</td>
+          <td>${esc(lead.status)}</td>
+          <td>
+            <span class="badge">${esc(date)}</span>
+            ${overdue ? '<span class="badge">Overdue</span>' : ''}
+          </td>
+          <td>
+            <a class="btn btn-gray" href="/leads?edit=${lead.id}">
+              Open
+            </a>
+          </td>
+        </tr>
       `;
     });
 
     if (!rows) {
-      rows =
-        '<tr><td colspan="5" class="muted">No follow-ups scheduled.</td></tr>';
+      rows = '<tr><td colspan="5" class="muted">No follow-ups scheduled.</td></tr>';
     }
 
     const content = `
-
-<div class="card">
-
-<h2>Follow-up List</h2>
-
-<div class="table-wrap">
-
-<table>
-
-<thead>
-<tr>
-<th>Lead</th>
-<th>Phone</th>
-<th>Status</th>
-<th>Follow-up</th>
-<th>Action</th>
-</tr>
-</thead>
-
-<tbody>
-${rows}
-</tbody>
-
-</table>
-
-</div>
-
-</div>
-`;
+      <div class="card">
+        <h2>Follow-up List</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Lead</th>
+                <th>Phone</th>
+                <th>Status</th>
+                <th>Follow-up</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>
+    `;
 
     res.send(
-  page(
-    'Follow-ups',
-    content,
-    'followups',
-    req.session.user.role
-  )
-);
-
-  } catch (err) {
-
-    console.error(err);
-
-    res.status(500).send(
-      'Follow-ups error: ' + esc(err.message)
+      page('Follow-ups', content, 'followups', req.session.user.role)
     );
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Follow-ups error: ' + esc(err.message));
   }
-
 });
+
 
 /* STAFF */
 
@@ -3685,7 +3677,9 @@ app.get('/whatsapp', requireLogin, async function(req, res) {
     const selectedPhone = String(req.query.phone || '').trim();
     const isAdmin = req.session.user.role === 'admin';
     const clientId = req.session.user.client_id;
-
+if (!isAdmin && !clientId) {
+  return res.status(403).send('Access denied');
+}
     // Mark only this client's incoming messages as read.
     if (selectedPhone) {
       const readParams = [selectedPhone];
@@ -4324,7 +4318,6 @@ app.get('/whatsapp/updates', requireLogin, async function(req, res) {
 
     const isAdmin = req.session.user.role === 'admin';
     const clientId = req.session.user.client_id;
-
     let query = `
       SELECT
         id,
@@ -4613,7 +4606,6 @@ app.post('/api/customers', requireApiKey, async function(req, res) {
 app.put('/api/customers/:id', requireApiKey, async function(req, res) {
   try {
     const customerId = Number(req.params.id);
-
     if (!Number.isSafeInteger(customerId) || customerId <= 0) {
       return res.status(400).json({
         success: false,
