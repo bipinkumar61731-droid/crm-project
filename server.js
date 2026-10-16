@@ -152,14 +152,14 @@ function requireAdmin(req, res, next) {
   next();
 }
 function page(title, content, active, role, displayName = '') {
-  const nav = [    ['/', 'Dashboard', 'dashboard'],
+      const nav = [    ['/', 'Dashboard', 'dashboard'],
     ['/customers', 'Customers', 'customers'],
     ['/leads', 'Leads', 'leads'],
     ['/followups', 'Follow-ups', 'followups'],
+    ['/reports', 'Reports', 'reports'],
     ['/api-info', 'API', 'api'],
     ['/whatsapp', '💬 WhatsApp Chat', 'whatsapp']
   ];
-
 if (role === 'admin') {
   nav.push(['/clients', 'Clients', 'clients']);
 }
@@ -1733,6 +1733,77 @@ async function sendWhatsAppMessage(event) {
     res.status(500).send('Dashboard error: ' + err.message);
   }
 });
+
+/* REPORTS */
+
+app.get('/reports', requireLogin, async function(req, res) {
+  try {
+    const isAdmin = req.session.user.role === 'admin';
+    const clientId = req.session.user.client_id;
+
+    const customerResult = await pool.query(
+      isAdmin
+        ? 'SELECT COUNT(*)::int AS count FROM customers'
+        : 'SELECT COUNT(*)::int AS count FROM customers WHERE client_id = $1',
+      isAdmin ? [] : [clientId]
+    );
+
+    const leadResult = await pool.query(
+      isAdmin
+        ? 'SELECT COUNT(*)::int AS count FROM leads'
+        : 'SELECT COUNT(*)::int AS count FROM leads WHERE client_id = $1',
+      isAdmin ? [] : [clientId]
+    );
+
+    const convertedResult = await pool.query(
+      isAdmin
+        ? "SELECT COUNT(*)::int AS count FROM leads WHERE status = 'Converted'"
+        : "SELECT COUNT(*)::int AS count FROM leads WHERE status = 'Converted' AND client_id = $1",
+      isAdmin ? [] : [clientId]
+    );
+
+    const totalCustomers = customerResult.rows[0].count;
+    const totalLeads = leadResult.rows[0].count;
+    const convertedLeads = convertedResult.rows[0].count;
+
+    const conversionRate = totalLeads > 0
+      ? ((convertedLeads / totalLeads) * 100).toFixed(1)
+      : '0.0';
+
+    const content = `
+      <div class="card">
+        <h2>CRM Reports</h2>
+        <p>Summary of your CRM data.</p>
+      </div>
+
+      <div class="card">
+        <h3>Total Customers</h3>
+        <p style="font-size:28px;font-weight:bold">${totalCustomers}</p>
+      </div>
+
+      <div class="card">
+        <h3>Total Leads</h3>
+        <p style="font-size:28px;font-weight:bold">${totalLeads}</p>
+      </div>
+
+      <div class="card">
+        <h3>Converted Leads</h3>
+        <p style="font-size:28px;font-weight:bold">${convertedLeads}</p>
+      </div>
+
+      <div class="card">
+        <h3>Conversion Rate</h3>
+        <p style="font-size:28px;font-weight:bold">${conversionRate}%</p>
+      </div>
+    `;
+
+    res.send(page('Reports', content, 'reports', req.session.user.role, req.session.user.username));
+  } catch (err) {
+    console.error('Reports error:', err);
+    res.status(500).send('Reports error: ' + esc(err.message));
+  }
+});
+
 
 /* CUSTOMERS */
 app.post('/customers/add', requireLogin, async function(req, res) {
