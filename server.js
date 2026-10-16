@@ -1739,12 +1739,17 @@ async function sendWhatsAppMessage(event) {
   }
 });
 
+
 /* REPORTS */
 
 app.get('/reports', requireLogin, async function(req, res) {
   try {
     const isAdmin = req.session.user.role === 'admin';
     const clientId = req.session.user.client_id;
+
+    if (!isAdmin && !clientId) {
+      return res.status(403).send('Access denied');
+    }
 
     const customerResult = await pool.query(
       isAdmin
@@ -1775,6 +1780,68 @@ app.get('/reports', requireLogin, async function(req, res) {
       ? ((convertedLeads / totalLeads) * 100).toFixed(1)
       : '0.0';
 
+    let clientSummary = '';
+
+    if (isAdmin) {
+      const summaryResult = await pool.query(`
+        SELECT
+          c.id,
+          c.name,
+          COUNT(DISTINCT cu.id)::int AS total_customers,
+          COUNT(DISTINCT l.id)::int AS total_leads,
+          COUNT(DISTINCT l.id) FILTER (
+            WHERE l.status = 'Converted'
+          )::int AS converted_leads
+        FROM clients c
+        LEFT JOIN customers cu ON cu.client_id = c.id
+        LEFT JOIN leads l ON l.client_id = c.id
+        GROUP BY c.id, c.name
+        ORDER BY c.id ASC
+      `);
+
+      let summaryRows = '';
+
+      summaryResult.rows.forEach(function(client) {
+        const rate = client.total_leads > 0
+          ? ((client.converted_leads / client.total_leads) * 100).toFixed(1)
+          : '0.0';
+
+        summaryRows += `
+          <tr>
+            <td>${esc(client.name)}</td>
+            <td>${client.total_customers}</td>
+            <td>${client.total_leads}</td>
+            <td>${client.converted_leads}</td>
+            <td>${rate}%</td>
+          </tr>
+        `;
+      });
+
+      if (!summaryRows) {
+        summaryRows = '<tr><td colspan="5" class="muted">No clients found.</td></tr>';
+      }
+
+      clientSummary = `
+        <div class="card">
+          <h2>Client-wise Summary</h2>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Client</th>
+                  <th>Total Customers</th>
+                  <th>Total Leads</th>
+                  <th>Converted Leads</th>
+                  <th>Conversion Rate</th>
+                </tr>
+              </thead>
+              <tbody>${summaryRows}</tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
     const content = `
       <div class="card">
         <h2>CRM Reports</h2>
@@ -1800,6 +1867,8 @@ app.get('/reports', requireLogin, async function(req, res) {
         <h3>Conversion Rate</h3>
         <p style="font-size:28px;font-weight:bold">${conversionRate}%</p>
       </div>
+
+      ${clientSummary}
     `;
 
     res.send(page('Reports', content, 'reports', req.session.user.role, req.session.user.username));
