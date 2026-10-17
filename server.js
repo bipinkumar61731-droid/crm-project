@@ -3952,9 +3952,14 @@ if (!phoneNumberId) {
       );
 
       const contactName = String(
-        contact?.profile?.name || ''
-      ).trim();
+  contact?.profile?.name || ''
+).trim();
 
+console.log('WhatsApp contact profile:', {
+  phone,
+  contactName,
+  hasContact: Boolean(contact)
+});
       if (phoneNumberId && phone && contactName && clientId !== null) {
         await pool.query(
           `INSERT INTO whatsapp_contacts
