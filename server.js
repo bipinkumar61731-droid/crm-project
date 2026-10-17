@@ -4090,7 +4090,9 @@ if (!isAdmin && !clientId) {
     }
 
     conversationsQuery += `
-            GROUP BY wm.phone, wm.phone_number_id
+            
+      GROUP BY wm.phone, wm.phone_number_id, wm.client_id
+      ORDER BY last_id DESC
       ORDER BY last_id DESC
     `;
 
