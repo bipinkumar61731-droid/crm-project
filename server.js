@@ -4007,18 +4007,27 @@ if (!isAdmin && !clientId) {
       await pool.query(readQuery, readParams);
     }
 
-    // Build conversation list query.
+        // Build conversation list query with customer names.
     let conversationsQuery = `
       SELECT
-        phone,
-        MAX(id) AS last_id,
-        MAX(created_at) AS last_time,
+        wm.phone,
+        MAX(wm.id) AS last_id,
+        MAX(wm.created_at) AS last_time,
         COUNT(*)::int AS message_count,
         COUNT(*) FILTER (
-          WHERE direction = 'incoming'
-          AND is_read = false
-        )::int AS unread_count
-      FROM whatsapp_messages
+          WHERE wm.direction = 'incoming'
+          AND wm.is_read = false
+        )::int AS unread_count,
+        (
+          SELECT c.name
+          FROM customers c
+          WHERE regexp_replace(COALESCE(c.phone, ''), '[^0-9]', '', 'g')
+              = regexp_replace(wm.phone, '[^0-9]', '', 'g')
+          ${!isAdmin ? 'AND c.client_id = $1' : ''}
+          ORDER BY c.id DESC
+          LIMIT 1
+        ) AS contact_name
+      FROM whatsapp_messages wm
     `;
 
     const params = [];
@@ -4026,12 +4035,12 @@ if (!isAdmin && !clientId) {
 
     if (!isAdmin) {
       params.push(clientId);
-      filters.push(`client_id = $${params.length}`);
+      filters.push(`wm.client_id = $${params.length}`);
     }
 
     if (search) {
       params.push('%' + search + '%');
-      filters.push(`phone ILIKE $${params.length}`);
+      filters.push(`wm.phone ILIKE $${params.length}`);
     }
 
     if (filters.length) {
@@ -4039,7 +4048,7 @@ if (!isAdmin && !clientId) {
     }
 
     conversationsQuery += `
-      GROUP BY phone
+      GROUP BY wm.phone
       ORDER BY last_id DESC
     `;
 
@@ -4047,7 +4056,6 @@ if (!isAdmin && !clientId) {
       conversationsQuery,
       params
     );
-
     // Open only a conversation visible to this user.
     let phone = selectedPhone;
 
@@ -4125,7 +4133,7 @@ if (!isAdmin && !clientId) {
             ">
 
               <strong>
-                📱 ${esc(chat.phone)}
+                ${esc(chat.contact_name || chat.phone)}
               </strong>
 
               ${
