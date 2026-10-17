@@ -4679,15 +4679,13 @@ async function startWhatsAppRecording() {
     });
 
     const types = [
-      'audio/ogg;codecs=opus',
-      'audio/mp4',
-      'audio/webm;codecs=opus'
-    ];
+  'audio/ogg;codecs=opus',
+  'audio/webm;codecs=opus'
+];
 
-    const mimeType = types.find(type =>
-      MediaRecorder.isTypeSupported(type)
-    );
-
+const mimeType = types.find(type =>
+  MediaRecorder.isTypeSupported(type)
+);
     if (!mimeType) {
       stream.getTracks().forEach(track => track.stop());
       alert('Is browser mein supported audio recording format nahi mila.');
