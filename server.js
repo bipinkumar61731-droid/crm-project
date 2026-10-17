@@ -1728,7 +1728,7 @@ async function sendWhatsAppMessage(event) {
       return false;
     }
 
-    alert('WhatsApp message sent successfully!');
+    // Success popup removed
     document.getElementById('waMessage').value = '';
     location.reload();
 
@@ -4067,10 +4067,11 @@ if (!isAdmin && !clientId) {
         phone,
         message,
         direction,
-        created_at,
+               created_at,
         media_type,
         media_id,
-        media_mime_type
+        media_mime_type,
+        delivery_status
       FROM whatsapp_messages
         WHERE phone = $1
       `;
@@ -4214,7 +4215,7 @@ if (!isAdmin && !clientId) {
                 white-space:pre-wrap;
               ">${esc(msg.message || '')}</div>
 
-              <div style="
+                            <div style="
                 font-size:10px;
                 color:#cbd5e1;
                 margin-top:5px;
@@ -4230,6 +4231,30 @@ if (!isAdmin && !clientId) {
                   hour12: true
                 }))}
               </div>
+
+              ${
+                !incoming
+                  ? `
+                    <div style="
+                      font-size:11px;
+                      color:#bbf7d0;
+                      margin-top:3px;
+                      text-align:right;
+                    ">
+                                            ${
+                        msg.delivery_status === 'read'
+  ? 'Seen'
+  : msg.delivery_status === 'delivered'
+  ? 'Delivered'
+  : msg.delivery_status === 'sent'
+  ? 'Sent'
+  : msg.delivery_status === 'failed'
+  ? 'Failed'
+  : 'Sent'                      }
+                    </div>
+                  `
+                  : ''
+              }
             </div>
           </div>
         `;
@@ -4237,7 +4262,6 @@ if (!isAdmin && !clientId) {
       }).join('');
 
     const content = `
-
       <style>
 
         .wa-layout {
