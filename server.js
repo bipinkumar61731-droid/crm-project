@@ -4648,7 +4648,7 @@ async function sendWhatsAppMessage(event) {
     input.value = '';
     fileInput.value = '';
 
-    alert(file ? 'Media sent successfully!' : 'Message sent successfully!');
+   // Success popup removed
     pollWhatsAppUpdates();
 
   } catch (err) {
