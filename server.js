@@ -873,6 +873,22 @@ await pool.query(`
 `);
 
 await pool.query(`
+  ALTER TABLE whatsapp_messages
+  ADD COLUMN IF NOT EXISTS delivery_status VARCHAR(30) DEFAULT 'accepted'
+`);
+
+await pool.query(`
+  ALTER TABLE whatsapp_messages
+  ADD COLUMN IF NOT EXISTS delivery_error TEXT
+`);
+
+await pool.query(`
+  ALTER TABLE whatsapp_messages
+  ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMP
+`);
+
+
+await pool.query(`
   CREATE TABLE IF NOT EXISTS client_whatsapp_settings (
     id SERIAL PRIMARY KEY,
     client_id INTEGER NOT NULL UNIQUE
@@ -3846,10 +3862,46 @@ app.post('/webhook/whatsapp', async function(req, res) {
     }
 
     const messages = value.messages || [];
-    const phoneNumberId =
-      value.metadata?.phone_number_id || '';
+const phoneNumberId = value.metadata?.phone_number_id || '';
+if (!phoneNumberId) {
+  console.warn('Webhook missing phone_number_id');
+  return res.sendStatus(200);
+}
+    // Track WhatsApp outgoing message delivery statuses.
+    const statuses = value.statuses || [];
 
-    if (!phoneNumberId) {
+    for (const status of statuses) {
+      const whatsappMessageId = status.id || '';
+      const deliveryStatus = status.status || '';
+
+      if (!whatsappMessageId || !deliveryStatus) continue;
+
+      const errorDetails = Array.isArray(status.errors)
+        ? JSON.stringify(status.errors)
+        : null;
+
+      await pool.query(
+        `UPDATE whatsapp_messages
+         SET delivery_status = $1,
+             delivery_error = $2,
+             status_updated_at = NOW()
+         WHERE whatsapp_message_id = $3
+  AND phone_number_id = $4`,
+        [
+  deliveryStatus,
+  errorDetails,
+  whatsappMessageId,
+  phoneNumberId
+]
+      );
+
+      console.log('WhatsApp delivery status updated', {
+        whatsappMessageId,
+        deliveryStatus
+      });
+    }
+
+       if (!phoneNumberId) {
       console.warn('Webhook missing phone_number_id');
       return res.sendStatus(200);
     }
@@ -4765,18 +4817,20 @@ app.post('/whatsapp/send', requireLogin, async function(req, res) {
       });
     }
 
+   
     await pool.query(
       `INSERT INTO whatsapp_messages
        (client_id, phone_number_id, phone, message,
-        direction, whatsapp_message_id)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+        direction, whatsapp_message_id, delivery_status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [
         isAdmin ? null : clientId,
         phoneNumberId,
         to,
         message,
         'outgoing',
-        data.messages?.[0]?.id || null
+        data.messages?.[0]?.id || null,
+        'accepted'
       ]
     );
 
