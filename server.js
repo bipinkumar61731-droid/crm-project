@@ -905,7 +905,17 @@ await pool.query(`
     updated_at TIMESTAMP DEFAULT NOW()
   )
 `);
-
+await pool.query(`
+  CREATE TABLE IF NOT EXISTS whatsapp_contacts (
+    id SERIAL PRIMARY KEY,
+    client_id INTEGER,
+    phone_number_id VARCHAR(100) NOT NULL,
+    phone VARCHAR(50) NOT NULL,
+    name VARCHAR(200),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE (client_id, phone_number_id, phone)
+  )
+`);
 console.log('Database setup completed.');
 }
 
