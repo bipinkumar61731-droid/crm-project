@@ -5,6 +5,8 @@ const session = require('express-session');
 const pg = require('pg');
 const crypto = require('crypto');
 const multer = require('multer');
+const { spawn } = require('child_process');
+const ffmpegPath = require('ffmpeg-static');
 require('dotenv').config();
 
 const { Pool } = pg;
@@ -5089,13 +5091,57 @@ app.post('/whatsapp/send-media', requireLogin, whatsappUpload.single('file'), as
     const caption = String(req.body.caption || '').trim();
     const file = req.file;
 
-    if (!to || !file) {
-      return res.status(400).json({
-        success: false,
-        error: 'Phone number and file are required'
+if (!to || !file) {
+  return res.status(400).json({
+    success: false,
+    error: 'Phone number and file are required'
+  });
+}
+
+let uploadBuffer = file.buffer;
+    let uploadMimeType = file.mimetype;
+    let uploadFileName = file.originalname;
+
+    if (file.mimetype.startsWith('audio/')) {
+      const converted = await new Promise((resolve, reject) => {
+        const ffmpegProcess = spawn(ffmpegPath, [
+          '-hide_banner',
+          '-loglevel', 'error',
+          '-i', 'pipe:0',
+          '-vn',
+          '-c:a', 'libopus',
+          '-b:a', '64k',
+          '-f', 'ogg',
+          'pipe:1'
+        ], {
+          stdio: ['pipe', 'pipe', 'pipe']
+        });
+
+        const chunks = [];
+        const errors = [];
+
+        ffmpegProcess.stdout.on('data', chunk => chunks.push(chunk));
+        ffmpegProcess.stderr.on('data', chunk => errors.push(chunk));
+
+        ffmpegProcess.on('error', reject);
+
+        ffmpegProcess.on('close', code => {
+          if (code !== 0) {
+            reject(new Error(Buffer.concat(errors).toString() || 'Audio conversion failed'));
+          } else {
+            resolve(Buffer.concat(chunks));
+          }
+        });
+
+        ffmpegProcess.stdin.end(file.buffer);
       });
+
+      uploadBuffer = converted;
+      uploadMimeType = 'audio/ogg';
+      uploadFileName = 'recorded-audio.ogg';
     }
 
+   
     const isAdmin = req.session.user.role === 'admin';
     const clientId = req.session.user.client_id;
 
@@ -5153,11 +5199,11 @@ app.post('/whatsapp/send-media', requireLogin, whatsappUpload.single('file'), as
 
     const formData = new FormData();
     formData.append('messaging_product', 'whatsapp');
-    formData.append('type', file.mimetype);
+    formData.append('type', uploadMimeType);
     formData.append(
       'file',
-      new Blob([file.buffer], { type: file.mimetype }),
-      file.originalname
+      new Blob([uploadBuffer], { type: uploadMimeType }),
+    uploadFileName
     );
 
     const uploadResponse = await fetch(
@@ -5238,8 +5284,8 @@ app.post('/whatsapp/send-media', requireLogin, whatsappUpload.single('file'), as
         'outgoing',
         sendData.messages?.[0]?.id || null,
         mediaType,
-        mediaId,
-        file.mimetype
+                mediaId,
+        uploadMimeType
       ]
     );
 
