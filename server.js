@@ -4089,10 +4089,8 @@ if (!isAdmin && !clientId) {
       conversationsQuery += ` WHERE ${filters.join(' AND ')}`;
     }
 
-    conversationsQuery += `
-            
+        conversationsQuery += `
       GROUP BY wm.phone, wm.phone_number_id, wm.client_id
-      ORDER BY last_id DESC
       ORDER BY last_id DESC
     `;
 
