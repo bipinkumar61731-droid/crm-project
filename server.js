@@ -4090,7 +4090,7 @@ if (!isAdmin && !clientId) {
     }
 
     conversationsQuery += `
-      GROUP BY wm.phone
+            GROUP BY wm.phone, wm.phone_number_id
       ORDER BY last_id DESC
     `;
 
