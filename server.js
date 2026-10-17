@@ -916,6 +916,11 @@ await pool.query(`
     UNIQUE (client_id, phone_number_id, phone)
   )
 `);
+await pool.query(`
+  CREATE UNIQUE INDEX IF NOT EXISTS whatsapp_contacts_global_unique_idx
+  ON whatsapp_contacts (phone_number_id, phone)
+  WHERE client_id IS NULL
+`);
 console.log('Database setup completed.');
 }
 
@@ -3960,19 +3965,32 @@ console.log('WhatsApp contact profile:', {
   contactName,
   hasContact: Boolean(contact)
 });
-      if (phoneNumberId && phone && contactName && clientId !== null) {
-        await pool.query(
-          `INSERT INTO whatsapp_contacts
-            (client_id, phone_number_id, phone, name, updated_at)
-           VALUES ($1, $2, $3, $4, NOW())
-           ON CONFLICT (client_id, phone_number_id, phone)
-           DO UPDATE SET
-             name = EXCLUDED.name,
-             updated_at = NOW()`,
-          [clientId, phoneNumberId, phone, contactName]
-        );
-      }
-
+      if (phoneNumberId && phone && contactName) {
+  if (clientId === null) {
+    await pool.query(
+      `INSERT INTO whatsapp_contacts
+        (client_id, phone_number_id, phone, name, updated_at)
+       VALUES (NULL, $1, $2, $3, NOW())
+       ON CONFLICT (phone_number_id, phone)
+       WHERE client_id IS NULL
+       DO UPDATE SET
+         name = EXCLUDED.name,
+         updated_at = NOW()`,
+      [phoneNumberId, phone, contactName]
+    );
+  } else {
+    await pool.query(
+      `INSERT INTO whatsapp_contacts
+        (client_id, phone_number_id, phone, name, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (client_id, phone_number_id, phone)
+       DO UPDATE SET
+         name = EXCLUDED.name,
+         updated_at = NOW()`,
+      [clientId, phoneNumberId, phone, contactName]
+    );
+  }
+}
       if (!phone) continue;
 
       let message = '';
