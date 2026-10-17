@@ -4235,7 +4235,7 @@ if (!isAdmin && !clientId) {
               ${
                 !incoming
                   ? `
-                    <div style="
+                    <div class="wa-delivery-status" style="
                       font-size:11px;
                       color:#bbf7d0;
                       margin-top:3px;
@@ -4485,6 +4485,28 @@ async function pollWhatsAppUpdates() {
     if (!data.success || !Array.isArray(data.messages)) {
       return;
     }
+    const statusLabels = {
+      read: 'Seen',
+      delivered: 'Delivered',
+      sent: 'Sent',
+      failed: 'Failed',
+      accepted: 'Sent'
+    };
+
+    for (const status of (data.statuses || [])) {
+      const messageRow = container.querySelector(
+        '[data-message-id="' + Number(status.id) + '"]'
+      );
+
+      const label = messageRow
+        ? messageRow.querySelector('.wa-delivery-status')
+        : null;
+
+      if (label) {
+        label.textContent =
+          statusLabels[status.delivery_status] || 'Sent';
+      }
+    }
 
     for (const msg of data.messages) {
       const id = Number(msg.id);
@@ -4504,6 +4526,7 @@ async function pollWhatsAppUpdates() {
       const incoming = msg.direction === 'incoming';
 
       const row = document.createElement('div');
+row.dataset.messageId = String(id);
       row.style.display = 'flex';
       row.style.justifyContent = incoming ? 'flex-start' : 'flex-end';
       row.style.marginBottom = '10px';
@@ -4578,6 +4601,25 @@ async function pollWhatsAppUpdates() {
       container.appendChild(row);
 
       waLastMessageId = id;
+
+      bubble.appendChild(time);
+
+      if (!incoming) {
+        const status = document.createElement('div');
+        status.className = 'wa-delivery-status';
+        status.style.fontSize = '11px';
+        status.style.color = '#bbf7d0';
+        status.style.marginTop = '3px';
+        status.style.textAlign = 'right';
+        status.textContent = statusLabels[msg.delivery_status] || 'Sent';
+        bubble.appendChild(status);
+      }
+
+      row.appendChild(bubble);
+      container.appendChild(row);
+
+      waLastMessageId = id;
+
     }
 
     if (data.messages.length > 0) {
@@ -4713,18 +4755,21 @@ app.get('/whatsapp/updates', requireLogin, async function(req, res) {
 
     const isAdmin = req.session.user.role === 'admin';
     const clientId = req.session.user.client_id;
-    let query = `
+        let query = `
       SELECT
         id,
         phone,
         message,
         direction,
-        created_at
+        created_at,
+        delivery_status,
+        media_id,
+        media_type,
+        media_mime_type
       FROM whatsapp_messages
       WHERE phone = $1
         AND id > $2
     `;
-
     const params = [phone, after];
 
     if (!isAdmin) {
@@ -4741,11 +4786,30 @@ app.get('/whatsapp/updates', requireLogin, async function(req, res) {
 
     const result = await pool.query(query, params);
 
+     
+    let statusQuery = `
+      SELECT id, delivery_status
+      FROM whatsapp_messages
+      WHERE phone = $1
+        AND direction = 'outgoing'
+    `;
+
+    const statusParams = [phone];
+
+    if (!isAdmin) {
+      statusParams.push(clientId);
+      statusQuery += ` AND client_id = $${statusParams.length}`;
+    }
+
+    statusQuery += ` ORDER BY id DESC LIMIT 200`;
+
+    const statusResult = await pool.query(statusQuery, statusParams);
+
     return res.json({
       success: true,
-      messages: result.rows
+      messages: result.rows,
+      statuses: statusResult.rows
     });
-
   } catch (err) {
     console.error('WhatsApp updates error:', err);
 
