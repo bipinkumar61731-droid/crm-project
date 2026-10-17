@@ -4,12 +4,36 @@ const express = require('express');
 const session = require('express-session');
 const pg = require('pg');
 const crypto = require('crypto');
-
+const multer = require('multer');
 require('dotenv').config();
 
 const { Pool } = pg;
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+const whatsappUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 16 * 1024 * 1024
+  },
+  fileFilter: function (req, file, cb) {
+    const allowedTypes = [
+      'image/jpeg',
+      'image/png',
+      'audio/aac',
+      'audio/mp4',
+      'audio/mpeg',
+      'audio/amr',
+      'audio/ogg'
+    ];
+
+    if (allowedTypes.includes(file.mimetype)) {
+      return cb(null, true);
+    }
+
+    cb(new Error('Only JPG, PNG, and supported audio files are allowed.'));
+  }
+});
 
 app.set('trust proxy', 1);
 
@@ -827,19 +851,25 @@ await pool.query(`
       created_at TIMESTAMP DEFAULT NOW()
     )
   `);
-await pool.query(`
-  ALTER TABLE whatsapp_messages
-  ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE
-`);
-
-await pool.query(`
-  ALTER TABLE whatsapp_messages
-  ADD COLUMN IF NOT EXISTS client_id INTEGER
-`);
 
 await pool.query(`
   ALTER TABLE whatsapp_messages
   ADD COLUMN IF NOT EXISTS phone_number_id VARCHAR(100)
+`);
+
+await pool.query(`
+  ALTER TABLE whatsapp_messages
+  ADD COLUMN IF NOT EXISTS media_type VARCHAR(20)
+`);
+
+await pool.query(`
+  ALTER TABLE whatsapp_messages
+  ADD COLUMN IF NOT EXISTS media_id VARCHAR(255)
+`);
+
+await pool.query(`
+  ALTER TABLE whatsapp_messages
+  ADD COLUMN IF NOT EXISTS media_mime_type VARCHAR(100)
 `);
 
 await pool.query(`
@@ -4694,6 +4724,181 @@ app.post('/whatsapp/send', requireLogin, async function(req, res) {
     return res.status(500).json({
       success: false,
       error: 'Unable to send WhatsApp message'
+    });
+  }
+});
+app.post('/whatsapp/send-media', requireLogin, whatsappUpload.single('file'), async function(req, res) {
+  try {
+    const to = String(req.body.to || '').trim();
+    const caption = String(req.body.caption || '').trim();
+    const file = req.file;
+
+    if (!to || !file) {
+      return res.status(400).json({
+        success: false,
+        error: 'Phone number and file are required'
+      });
+    }
+
+    const isAdmin = req.session.user.role === 'admin';
+    const clientId = req.session.user.client_id;
+
+    let token;
+    let phoneNumberId;
+
+    if (isAdmin) {
+      token = process.env.WHATSAPP_ACCESS_TOKEN;
+      phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    } else {
+      if (!clientId) {
+        return res.status(403).json({
+          success: false,
+          error: 'Client account is not linked correctly'
+        });
+      }
+
+      const settingsResult = await pool.query(
+        `SELECT phone_number_id, access_token
+         FROM client_whatsapp_settings
+         WHERE client_id = $1 AND is_active = TRUE
+         LIMIT 1`,
+        [clientId]
+      );
+
+      if (!settingsResult.rows.length) {
+        return res.status(403).json({
+          success: false,
+          error: 'WhatsApp is not configured for this client'
+        });
+      }
+
+      phoneNumberId = settingsResult.rows[0].phone_number_id;
+      token = settingsResult.rows[0].access_token;
+    }
+
+    if (!token || !phoneNumberId) {
+      return res.status(500).json({
+        success: false,
+        error: 'WhatsApp API is not configured'
+      });
+    }
+
+    const isImage = file.mimetype.startsWith('image/');
+    const maxSize = isImage ? 5 * 1024 * 1024 : 16 * 1024 * 1024;
+
+    if (file.size > maxSize) {
+      return res.status(400).json({
+        success: false,
+        error: isImage
+          ? 'Image must be 5 MB or smaller'
+          : 'Audio must be 16 MB or smaller'
+      });
+    }
+
+    const formData = new FormData();
+    formData.append('messaging_product', 'whatsapp');
+    formData.append('type', file.mimetype);
+    formData.append(
+      'file',
+      new Blob([file.buffer], { type: file.mimetype }),
+      file.originalname
+    );
+
+    const uploadResponse = await fetch(
+      `https://graph.facebook.com/v23.0/${phoneNumberId}/media`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
+        body: formData
+      }
+    );
+
+    const uploadData = await uploadResponse.json();
+
+    if (!uploadResponse.ok || !uploadData.id) {
+      console.error('WhatsApp media upload error:', uploadData);
+      return res.status(502).json({
+        success: false,
+        error: uploadData
+      });
+    }
+
+    const mediaId = uploadData.id;
+    const mediaType = isImage ? 'image' : 'audio';
+
+    const mediaMessage = {
+      messaging_product: 'whatsapp',
+      to: to,
+      type: mediaType
+    };
+
+    if (isImage) {
+      mediaMessage.image = { id: mediaId };
+      if (caption) {
+        mediaMessage.image.caption = caption;
+      }
+    } else {
+      mediaMessage.audio = { id: mediaId };
+    }
+
+    const sendResponse = await fetch(
+      `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(mediaMessage)
+      }
+    );
+
+    const sendData = await sendResponse.json();
+
+    if (!sendResponse.ok) {
+      console.error('WhatsApp media send error:', sendData);
+      return res.status(502).json({
+        success: false,
+        error: sendData
+      });
+    }
+
+    const savedMessage = isImage
+      ? (caption || '[Photo]')
+      : '[Audio]';
+
+    await pool.query(
+      `INSERT INTO whatsapp_messages
+       (client_id, phone_number_id, phone, message, direction,
+        whatsapp_message_id, media_type, media_id, media_mime_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        isAdmin ? null : clientId,
+        phoneNumberId,
+        to,
+        savedMessage,
+        'outgoing',
+        sendData.messages?.[0]?.id || null,
+        mediaType,
+        mediaId,
+        file.mimetype
+      ]
+    );
+
+    return res.json({
+      success: true,
+      message: 'WhatsApp media sent',
+      mediaType: mediaType,
+      data: sendData
+    });
+
+  } catch (err) {
+    console.error('WhatsApp media send error:', err);
+    return res.status(500).json({
+      success: false,
+      error: 'Unable to send WhatsApp media'
     });
   }
 });
