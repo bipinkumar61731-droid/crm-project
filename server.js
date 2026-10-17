@@ -18,15 +18,17 @@ const whatsappUpload = multer({
   },
   fileFilter: function (req, file, cb) {
     const allowedTypes = [
-      'image/jpeg',
-      'image/png',
-      'audio/aac',
-      'audio/mp4',
-      'audio/mpeg',
-      'audio/amr',
-      'audio/ogg'
-    ];
-
+  'image/jpeg',
+  'image/png',
+  'audio/aac',
+  'audio/mp4',
+  'audio/mpeg',
+  'audio/amr',
+  'audio/ogg',
+  'audio/webm',
+  'audio/webm;codecs=opus',
+  'audio/ogg;codecs=opus'
+];
     if (allowedTypes.includes(file.mimetype)) {
       return cb(null, true);
     }
