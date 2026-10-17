@@ -3934,8 +3934,29 @@ if (!phoneNumberId) {
     }
 
     for (const msg of messages) {
+
       const phone = msg.from || '';
       const whatsappMessageId = msg.id || '';
+      const contact = (value.contacts || []).find(
+        c => String(c.wa_id || '') === String(msg.from || '')
+      );
+
+      const contactName = String(
+        contact?.profile?.name || ''
+      ).trim();
+
+      if (phoneNumberId && phone && contactName && clientId !== null) {
+        await pool.query(
+          `INSERT INTO whatsapp_contacts
+            (client_id, phone_number_id, phone, name, updated_at)
+           VALUES ($1, $2, $3, $4, NOW())
+           ON CONFLICT (client_id, phone_number_id, phone)
+           DO UPDATE SET
+             name = EXCLUDED.name,
+             updated_at = NOW()`,
+          [clientId, phoneNumberId, phone, contactName]
+        );
+      }
 
       if (!phone) continue;
 
@@ -4007,7 +4028,7 @@ if (!isAdmin && !clientId) {
       await pool.query(readQuery, readParams);
     }
 
-        // Build conversation list query with customer names.
+            // Build conversation list query with saved WhatsApp contact names.
     let conversationsQuery = `
       SELECT
         wm.phone,
@@ -4018,18 +4039,29 @@ if (!isAdmin && !clientId) {
           WHERE wm.direction = 'incoming'
           AND wm.is_read = false
         )::int AS unread_count,
-        (
-          SELECT c.name
-          FROM customers c
-          WHERE regexp_replace(COALESCE(c.phone, ''), '[^0-9]', '', 'g')
-              = regexp_replace(wm.phone, '[^0-9]', '', 'g')
-          ${!isAdmin ? 'AND c.client_id = $1' : ''}
-          ORDER BY c.id DESC
-          LIMIT 1
+        COALESCE(
+          (
+            SELECT wc.name
+            FROM whatsapp_contacts wc
+            WHERE wc.phone = wm.phone
+              AND wc.phone_number_id = wm.phone_number_id
+              AND wc.client_id IS NOT DISTINCT FROM wm.client_id
+            ORDER BY wc.updated_at DESC
+            LIMIT 1
+          ),
+          (
+            SELECT c.name
+            FROM customers c
+            WHERE regexp_replace(COALESCE(c.phone, ''), '[^0-9]', '', 'g')
+                = regexp_replace(wm.phone, '[^0-9]', '', 'g')
+              AND c.client_id IS NOT DISTINCT FROM wm.client_id
+            ORDER BY c.id DESC
+            LIMIT 1
+          ),
+          wm.phone
         ) AS contact_name
       FROM whatsapp_messages wm
     `;
-
     const params = [];
     const filters = [];
 
