@@ -4432,7 +4432,7 @@ if (!isAdmin && !clientId) {
 
     <input
       id="waMessage"
-      placeholder="Type a message or photo caption..."
+      placeholder="Type a message or audio caption..."
       autocomplete="off"
     >
 
@@ -4442,17 +4442,50 @@ if (!isAdmin && !clientId) {
       accept="image/jpeg,image/png,audio/aac,audio/mp4,audio/mpeg,audio/amr,audio/ogg"
     >
 
-    <button
-      class="btn"
-      type="submit"
-    >
-      Send
-    </button>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+
+      <button
+        class="btn"
+        id="waRecordBtn"
+        type="button"
+        onclick="startWhatsAppRecording()"
+      >
+        🎙️ Record Audio
+      </button>
+
+      <button
+        class="btn"
+        id="waStopRecordBtn"
+        type="button"
+        onclick="stopWhatsAppRecording()"
+        disabled
+      >
+        ⏹️ Stop
+      </button>
+
+      <button
+        class="btn"
+        type="submit"
+      >
+        Send
+      </button>
+
+    </div>
+
+    <div
+      id="waRecordingStatus"
+      style="font-size:13px; margin-top:8px;"
+    ></div>
+
+    <audio
+      id="waRecordingPreview"
+      controls
+      style="display:none; width:100%; margin-top:8px;"
+    ></audio>
 
   </form>
 
 </div>
-
                 </div>
 
 
@@ -4635,7 +4668,79 @@ row.dataset.messageId = String(id);
 
 pollWhatsAppUpdates();
 setInterval(pollWhatsAppUpdates, 3000);
+let waMediaRecorder = null;
+let waRecordedChunks = [];
 
+async function startWhatsAppRecording() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: true
+    });
+
+    const types = [
+      'audio/ogg;codecs=opus',
+      'audio/mp4',
+      'audio/webm;codecs=opus'
+    ];
+
+    const mimeType = types.find(type =>
+      MediaRecorder.isTypeSupported(type)
+    );
+
+    if (!mimeType) {
+      stream.getTracks().forEach(track => track.stop());
+      alert('Is browser mein supported audio recording format nahi mila.');
+      return;
+    }
+
+    waRecordedChunks = [];
+    waMediaRecorder = new MediaRecorder(stream, { mimeType });
+
+    waMediaRecorder.ondataavailable = event => {
+      if (event.data.size > 0) {
+        waRecordedChunks.push(event.data);
+      }
+    };
+
+    waMediaRecorder.onstop = () => {
+      const blob = new Blob(waRecordedChunks, { type: mimeType });
+      const extension = mimeType.includes('ogg') ? 'ogg'
+        : mimeType.includes('mp4') ? 'm4a' : 'webm';
+
+      const audioUrl = URL.createObjectURL(blob);
+      const preview = document.getElementById('waRecordingPreview');
+
+      preview.src = audioUrl;
+      preview.style.display = 'block';
+      preview.dataset.extension = extension;
+      preview.dataset.mimeType = mimeType;
+
+      document.getElementById('waRecordingStatus').textContent =
+        'Recording ready. Preview suno, phir Send Audio ke liye taiyar raho.';
+
+      stream.getTracks().forEach(track => track.stop());
+    };
+
+    waMediaRecorder.start();
+
+    document.getElementById('waRecordBtn').disabled = true;
+    document.getElementById('waStopRecordBtn').disabled = false;
+    document.getElementById('waRecordingStatus').textContent =
+      '🔴 Recording chal rahi hai...';
+
+  } catch (error) {
+    console.error('Audio recording error:', error);
+    alert('Microphone access nahi mila. Browser ki microphone permission check karo.');
+  }
+}
+
+function stopWhatsAppRecording() {
+  if (waMediaRecorder && waMediaRecorder.state === 'recording') {
+    waMediaRecorder.stop();
+    document.getElementById('waRecordBtn').disabled = false;
+    document.getElementById('waStopRecordBtn').disabled = true;
+  }
+}
 
                   
 async function sendWhatsAppMessage(event) {
@@ -4645,15 +4750,55 @@ async function sendWhatsAppMessage(event) {
   const fileInput = document.getElementById('waMediaFile');
   const message = input.value.trim();
   const file = fileInput.files[0];
-
-  if (!message && !file) {
+const recordingPreview = document.getElementById('waRecordingPreview');
+ if (!message && !file && !recordingPreview.src) {
     alert('Message likho ya photo/audio select karo.');
     return false;
   }
 
   try {
     let response;
+if (recordingPreview.src && recordingPreview.src.startsWith('blob:')) {
+  const audioBlob = await fetch(recordingPreview.src).then(response => response.blob());
 
+  const extension = recordingPreview.dataset.extension || 'ogg';
+  const mimeType = recordingPreview.dataset.mimeType || audioBlob.type;
+
+  const recordedFile = new File(
+    [audioBlob],
+    'recorded-audio.' + extension,
+    { type: mimeType }
+  );
+
+  const formData = new FormData();
+  formData.append('to', waSelectedPhone);
+  formData.append('file', recordedFile);
+
+  if (message) {
+    formData.append('caption', message);
+  }
+
+  const response = await fetch('/whatsapp/send-media', {
+    method: 'POST',
+    body: formData
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    alert('Audio send failed: ' + JSON.stringify(data.error || data));
+    return false;
+  }
+
+  input.value = '';
+  fileInput.value = '';
+  recordingPreview.removeAttribute('src');
+  recordingPreview.style.display = 'none';
+  document.getElementById('waRecordingStatus').textContent = '';
+
+  pollWhatsAppUpdates();
+  return false;
+}
     if (file) {
       const formData = new FormData();
       formData.append('to', waSelectedPhone);
