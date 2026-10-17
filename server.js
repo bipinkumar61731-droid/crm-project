@@ -4011,13 +4011,15 @@ if (!isAdmin && !clientId) {
 
       let messageQuery = `
         SELECT
-          id,
-          phone,
-          message,
-          direction,
-          whatsapp_message_id,
-          created_at
-        FROM whatsapp_messages
+                  id,
+        phone,
+        message,
+        direction,
+        created_at,
+        media_type,
+        media_id,
+        media_mime_type
+      FROM whatsapp_messages
         WHERE phone = $1
       `;
 
@@ -4101,38 +4103,64 @@ if (!isAdmin && !clientId) {
       }).join('');
 
     // Message bubbles
+    
     const messageRows =
       messages.map(msg => {
 
         const incoming =
           msg.direction === 'incoming';
 
+        const mediaUrl = msg.media_id
+          ? '/whatsapp/media/' + encodeURIComponent(msg.media_id)
+          : '';
+
+        let mediaContent = '';
+
+        if (mediaUrl && msg.media_type === 'image') {
+          mediaContent = `
+            <img
+              src="${mediaUrl}"
+              alt="WhatsApp photo"
+              style="display:block;max-width:100%;max-height:300px;border-radius:8px;margin-bottom:8px;"
+              loading="lazy"
+            >
+          `;
+        } else if (mediaUrl && msg.media_type === 'audio') {
+          mediaContent = `
+            <audio
+              controls
+              preload="none"
+              style="display:block;max-width:100%;margin-bottom:8px;"
+            >
+              <source
+                src="${mediaUrl}"
+                type="${esc(msg.media_mime_type || 'audio/mpeg')}"
+              >
+              Your browser does not support audio playback.
+            </audio>
+          `;
+        }
+
         return `
           <div style="
             display:flex;
-            justify-content:${incoming
-              ? 'flex-start'
-              : 'flex-end'};
+            justify-content:${incoming ? 'flex-start' : 'flex-end'};
             margin-bottom:10px;
           ">
-
             <div style="
               max-width:75%;
               padding:11px 14px;
               border-radius:14px;
-              background:${incoming
-                ? '#1e293b'
-                : '#166534'};
+              background:${incoming ? '#1e293b' : '#166534'};
               color:white;
             ">
+              ${mediaContent}
 
               <div style="
                 font-size:14px;
                 line-height:1.45;
                 white-space:pre-wrap;
-              ">
-                ${esc(msg.message || '-')}
-              </div>
+              ">${esc(msg.message || '')}</div>
 
               <div style="
                 font-size:10px;
@@ -4140,20 +4168,17 @@ if (!isAdmin && !clientId) {
                 margin-top:5px;
                 text-align:right;
               ">
-                ${esc(
-  new Date(msg.created_at).toLocaleString('en-IN', {
-    timeZone: 'Asia/Kolkata',
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true
-  })
-)}              </div>
-
+                ${esc(new Date(msg.created_at).toLocaleString('en-IN', {
+                  timeZone: 'Asia/Kolkata',
+                  day: '2-digit',
+                  month: 'short',
+                  year: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  hour12: true
+                }))}
+              </div>
             </div>
-
           </div>
         `;
 
@@ -4319,29 +4344,38 @@ if (!isAdmin && !clientId) {
             phone
               ? `
 
-                <!-- REPLY BOX -->
+               
+<!-- REPLY BOX -->
 
-                <div class="wa-compose">
+<div class="wa-compose">
 
-                  <form
-                    onsubmit="return sendWhatsAppMessage(event)"
-                  >
+  <form
+    onsubmit="return sendWhatsAppMessage(event)"
+    enctype="multipart/form-data"
+  >
 
-                    <input
-                      id="waMessage"
-                      placeholder="Type a message..."
-                      autocomplete="off"
-                      required
-                    >
+    <input
+      id="waMessage"
+      placeholder="Type a message or photo caption..."
+      autocomplete="off"
+    >
 
-                    <button
-                      class="btn"
-                      type="submit"
-                    >
-                      Send
-                    </button>
+    <input
+      id="waMediaFile"
+      type="file"
+      accept="image/jpeg,image/png,audio/aac,audio/mp4,audio/mpeg,audio/amr,audio/ogg"
+    >
 
-                  </form>
+    <button
+      class="btn"
+      type="submit"
+    >
+      Send
+    </button>
+
+  </form>
+
+</div>
 
                 </div>
 
@@ -4427,7 +4461,42 @@ async function pollWhatsAppUpdates() {
         hour12: true
       });
 
-      bubble.appendChild(text);
+      
+      const mediaUrl = msg.media_id
+        ? '/whatsapp/media/' + encodeURIComponent(msg.media_id)
+        : '';
+
+      if (mediaUrl && msg.media_type === 'image') {
+        const image = document.createElement('img');
+        image.src = mediaUrl;
+        image.alt = 'WhatsApp photo';
+        image.loading = 'lazy';
+        image.style.display = 'block';
+        image.style.maxWidth = '100%';
+        image.style.maxHeight = '300px';
+        image.style.borderRadius = '8px';
+        image.style.marginBottom = '8px';
+        bubble.appendChild(image);
+      } else if (mediaUrl && msg.media_type === 'audio') {
+        const audio = document.createElement('audio');
+        audio.controls = true;
+        audio.preload = 'none';
+        audio.style.display = 'block';
+        audio.style.maxWidth = '100%';
+        audio.style.marginBottom = '8px';
+
+        const source = document.createElement('source');
+        source.src = mediaUrl;
+        source.type = msg.media_mime_type || 'audio/mpeg';
+
+        audio.appendChild(source);
+        bubble.appendChild(audio);
+      }
+
+      if (msg.message) {
+        bubble.appendChild(text);
+      }
+
       bubble.appendChild(time);
       row.appendChild(bubble);
       container.appendChild(row);
@@ -4450,70 +4519,69 @@ pollWhatsAppUpdates();
 setInterval(pollWhatsAppUpdates, 3000);
 
 
-                  async function sendWhatsAppMessage(event) {
+                  
+async function sendWhatsAppMessage(event) {
+  event.preventDefault();
 
-                    event.preventDefault();
+  const input = document.getElementById('waMessage');
+  const fileInput = document.getElementById('waMediaFile');
+  const message = input.value.trim();
+  const file = fileInput.files[0];
 
-                    const input =
-                      document.getElementById(
-                        'waMessage'
-                      );
+  if (!message && !file) {
+    alert('Message likho ya photo/audio select karo.');
+    return false;
+  }
 
-                    const message =
-                      input.value.trim();
+  try {
+    let response;
 
-                    if (!message) {
-                      return false;
-                    }
+    if (file) {
+      const formData = new FormData();
+      formData.append('to', waSelectedPhone);
+      formData.append('file', file);
 
-                    try {
+      if (message) {
+        formData.append('caption', message);
+      }
 
-                      const response =
-                        await fetch(
-                          '/whatsapp/send',
-                          {
-                            method:'POST',
+      response = await fetch('/whatsapp/send-media', {
+        method: 'POST',
+        body: formData
+      });
+    } else {
+      response = await fetch('/whatsapp/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          to: waSelectedPhone,
+          message: message
+        })
+      });
+    }
 
-                            headers:{
-                              'Content-Type':
-                                'application/json'
-                            },
+    const data = await response.json();
 
-                            body:JSON.stringify({
-                              to:${JSON.stringify(phone)},
-                              message:message
-                            })
-                          }
-                        );
+    if (!response.ok) {
+      alert('Message failed: ' + JSON.stringify(data.error));
+      return false;
+    }
 
-                      const data =
-                        await response.json();
+    input.value = '';
+    fileInput.value = '';
 
-                      if (!response.ok) {
+    alert(file ? 'Media sent successfully!' : 'Message sent successfully!');
+    pollWhatsAppUpdates();
 
-                        alert(
-                          'Message failed: ' +
-                          JSON.stringify(
-                            data.error
-                          )
-                        );
+  } catch (err) {
+    console.error('WhatsApp send error:', err);
+    alert('Message send nahi hua. Server log check karo.');
+  }
 
-                        return false;
-                      }
-
-                      input.value = '';
-
-                    } catch(err) {
-
-                      alert(
-                        'Error sending WhatsApp message'
-                      );
-
-                    }
-
-                    return false;
-
-                  }
+  return false;
+}
 
                 </script>
 
@@ -4902,6 +4970,105 @@ app.post('/whatsapp/send-media', requireLogin, whatsappUpload.single('file'), as
     });
   }
 });
+
+app.get('/whatsapp/media/:mediaId', requireLogin, async function(req, res) {
+  try {
+    const mediaId = req.params.mediaId;
+
+    if (!/^[a-zA-Z0-9_-]+$/.test(mediaId)) {
+      return res.status(400).send('Invalid media ID');
+    }
+
+    const isAdmin = req.session.user.role === 'admin';
+    const clientId = req.session.user.client_id;
+
+    let result;
+
+    if (isAdmin) {
+      result = await pool.query(
+        `SELECT media_id, media_mime_type, phone_number_id, client_id
+         FROM whatsapp_messages
+         WHERE media_id = $1
+         LIMIT 1`,
+        [mediaId]
+      );
+    } else {
+      result = await pool.query(
+        `SELECT media_id, media_mime_type, phone_number_id, client_id
+         FROM whatsapp_messages
+         WHERE media_id = $1 AND client_id = $2
+         LIMIT 1`,
+        [mediaId, clientId]
+      );
+    }
+
+    if (!result.rows.length) {
+      return res.status(404).send('Media not found');
+    }
+
+    const media = result.rows[0];
+    let accessToken;
+
+    if (isAdmin) {
+      accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+    } else {
+      const settings = await pool.query(
+        `SELECT access_token
+         FROM client_whatsapp_settings
+         WHERE client_id = $1 AND is_active = true
+         LIMIT 1`,
+        [clientId]
+      );
+
+      accessToken = settings.rows[0]?.access_token;
+    }
+
+    if (!accessToken) {
+      return res.status(403).send('WhatsApp access is not configured');
+    }
+
+    const metaResponse = await fetch(
+      `https://graph.facebook.com/v23.0/${mediaId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      }
+    );
+
+    if (!metaResponse.ok) {
+      return res.status(502).send('Unable to retrieve media information');
+    }
+
+    const meta = await metaResponse.json();
+
+    if (!meta.url) {
+      return res.status(502).send('Media URL unavailable');
+    }
+
+    const fileResponse = await fetch(meta.url, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    if (!fileResponse.ok || !fileResponse.body) {
+      return res.status(502).send('Unable to retrieve media file');
+    }
+
+    res.setHeader(
+      'Content-Type',
+      media.media_mime_type || meta.mime_type || 'application/octet-stream'
+    );
+    res.setHeader('Cache-Control', 'private, no-store');
+
+    return res.send(Buffer.from(await fileResponse.arrayBuffer()));
+  } catch (err) {
+    console.error('WhatsApp media retrieval error:', err);
+    return res.status(500).send('Unable to load media');
+  }
+});
+
 /* PUBLIC API */
 
 app.get('/health', async function(req, res) {
