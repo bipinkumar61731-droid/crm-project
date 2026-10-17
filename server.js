@@ -3896,9 +3896,10 @@ if (!phoneNumberId) {
       );
 
       console.log('WhatsApp delivery status updated', {
-        whatsappMessageId,
-        deliveryStatus
-      });
+  whatsappMessageId,
+  deliveryStatus,
+  errorDetails
+});
     }
 
        if (!phoneNumberId) {
