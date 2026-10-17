@@ -4684,14 +4684,22 @@ row.dataset.messageId = String(id);
         bubble.appendChild(text);
       }
 
+            if (!incoming) {
+        const status = document.createElement('div');
+        status.className = 'wa-delivery-status';
+        status.style.fontSize = '11px';
+        status.style.color = '#bbf7d0';
+        status.style.marginTop = '3px';
+        status.style.textAlign = 'right';
+        status.textContent = statusLabels[msg.delivery_status] || 'Sent';
+        bubble.appendChild(status);
+      }
+
       bubble.appendChild(time);
       row.appendChild(bubble);
       container.appendChild(row);
 
       waLastMessageId = id;
-
-      bubble.appendChild(time);
-
       if (!incoming) {
         const status = document.createElement('div');
         status.className = 'wa-delivery-status';
