@@ -4033,6 +4033,99 @@ console.log('WhatsApp contact profile:', {
 /* =========================
    WHATSAPP CHAT INBOX
 ========================= */
+/* =========================
+   DELETE WHATSAPP CONVERSATION
+========================= */
+app.post('/whatsapp/delete-conversation', requireLogin, async function(req, res) {
+  let db;
+
+  try {
+    const isAdmin = req.session.user.role === 'admin';
+    const clientId = req.session.user.client_id;
+
+    const phone = String(req.body.phone || '').trim();
+    const phoneNumberId =
+      String(req.body.phone_number_id || '').trim() || null;
+
+    if (!phone) {
+      return res.status(400).send('Phone number is required.');
+    }
+
+    if (!isAdmin && !clientId) {
+      return res.status(403).send('Access denied.');
+    }
+
+    let targetClientId;
+
+    if (isAdmin) {
+      const postedClientId = String(req.body.client_id || '').trim();
+
+      if (postedClientId === '') {
+        targetClientId = null;
+      } else {
+        targetClientId = Number(postedClientId);
+
+        if (!Number.isSafeInteger(targetClientId) || targetClientId <= 0) {
+          return res.status(400).send('Invalid client ID.');
+        }
+      }
+    } else {
+      // Client session decides ownership; never trust the form's client_id.
+      targetClientId = clientId;
+    }
+
+    db = await pool.connect();
+
+    await db.query('BEGIN');
+
+    // Remove only messages belonging to this exact conversation.
+    const deleteMessages = await db.query(
+      `DELETE FROM whatsapp_messages
+       WHERE phone = $1
+         AND phone_number_id IS NOT DISTINCT FROM $2
+         AND client_id IS NOT DISTINCT FROM $3::integer`,
+      [phone, phoneNumberId, targetClientId]
+    );
+
+    // Remove the saved contact name for this same conversation.
+    await db.query(
+      `DELETE FROM whatsapp_contacts
+       WHERE phone = $1
+         AND phone_number_id IS NOT DISTINCT FROM $2
+         AND client_id IS NOT DISTINCT FROM $3::integer`,
+      [phone, phoneNumberId, targetClientId]
+    );
+
+    await db.query('COMMIT');
+
+    console.log(
+      'WhatsApp conversation deleted:',
+      phone,
+      'client:',
+      targetClientId,
+      'messages:',
+      deleteMessages.rowCount
+    );
+
+    return res.redirect('/whatsapp');
+
+  } catch (err) {
+    if (db) {
+      try {
+        await db.query('ROLLBACK');
+      } catch (rollbackError) {
+        console.error('WhatsApp delete rollback error:', rollbackError);
+      }
+    }
+
+    console.error('WhatsApp conversation delete error:', err);
+    return res.status(500).send('Conversation delete failed. Check server logs.');
+  } finally {
+    if (db) {
+      db.release();
+    }
+  }
+});
 app.get('/whatsapp', requireLogin, async function(req, res) {
   try {
     const search = String(req.query.search || '').trim();
@@ -4065,6 +4158,8 @@ if (!isAdmin && !clientId) {
     let conversationsQuery = `
       SELECT
         wm.phone,
+        wm.phone_number_id,
+        wm.client_id,
         MAX(wm.id) AS last_id,
         MAX(wm.created_at) AS last_time,
         COUNT(*)::int AS message_count,
@@ -4171,67 +4266,114 @@ if (!isAdmin && !clientId) {
 
     // Conversation list HTML
     const conversationRows =
-      conversationsResult.rows.map(chat => {
+  conversationsResult.rows.map(chat => {
 
-        const active =
-          chat.phone === phone
-            ? 'background:#1d2945;'
-            : '';
+    const active =
+      chat.phone === phone
+        ? 'background:#1d2945;'
+        : '';
 
-        return `
-          <a
-            href="/whatsapp?phone=${encodeURIComponent(chat.phone)}"
-            style="
-              display:block;
-              padding:14px;
-              border-bottom:1px solid #26304a;
-              text-decoration:none;
-              color:white;
-              ${active}
-            "
+    return `
+      <div style="
+        border-bottom:1px solid #26304a;
+        ${active}
+      ">
+
+        <a
+          href="/whatsapp?phone=${encodeURIComponent(chat.phone)}"
+          style="
+            display:block;
+            padding:14px 14px 8px;
+            text-decoration:none;
+            color:white;
+          "
+        >
+
+          <div style="
+            display:flex;
+            justify-content:space-between;
+            gap:8px;
+          ">
+
+            <strong>
+              ${esc(chat.contact_name || chat.phone)}
+            </strong>
+
+            ${
+              Number(chat.unread_count) > 0
+                ? `
+                  <span style="
+                    background:#22c55e;
+                    color:#052e16;
+                    padding:3px 8px;
+                    border-radius:20px;
+                    font-size:11px;
+                    font-weight:800;
+                  ">
+                    ${chat.unread_count}
+                  </span>
+                `
+                : ''
+            }
+
+          </div>
+
+          <div style="
+            color:#94a3b8;
+            font-size:12px;
+            margin-top:5px;
+          ">
+            ${chat.message_count} messages
+          </div>
+
+        </a>
+
+        <form
+          method="POST"
+          action="/whatsapp/delete-conversation"
+          onsubmit="return confirm('Kya is conversation ke saved CRM messages delete karne hain?')"
+          style="padding:0 14px 12px;"
+        >
+
+          <input
+            type="hidden"
+            name="phone"
+            value="${esc(chat.phone)}"
           >
 
-            <div style="
-              display:flex;
-              justify-content:space-between;
-              gap:8px;
-            ">
+          <input
+            type="hidden"
+            name="phone_number_id"
+            value="${esc(chat.phone_number_id || '')}"
+          >
 
-              <strong>
-                ${esc(chat.contact_name || chat.phone)}
-              </strong>
+          <input
+            type="hidden"
+            name="client_id"
+            value="${chat.client_id == null ? '' : esc(String(chat.client_id))}"
+          >
 
-              ${
-                Number(chat.unread_count) > 0
-                  ? `
-                    <span style="
-                      background:#22c55e;
-                      color:#052e16;
-                      padding:3px 8px;
-                      border-radius:20px;
-                      font-size:11px;
-                      font-weight:800;
-                    ">
-                      ${chat.unread_count}
-                    </span>
-                  `
-                  : ''
-              }
-
-            </div>
-
-            <div style="
-              color:#94a3b8;
+          <button
+            type="submit"
+            style="
+              background:#991b1b;
+              color:white;
+              border:1px solid #ef4444;
+              border-radius:7px;
+              padding:6px 10px;
+              cursor:pointer;
               font-size:12px;
-              margin-top:5px;
-            ">
-              ${chat.message_count} messages
-            </div>
+            "
+          >
+            🗑️ Delete conversation
+          </button>
 
-          </a>
-        `;
+        </form>
 
-      }).join('');
+      </div>
+    `;
+
+  }).join('');
 
     // Message bubbles
     
@@ -4723,22 +4865,6 @@ row.dataset.messageId = String(id);
       container.appendChild(row);
 
       waLastMessageId = id;
-      if (!incoming) {
-        const status = document.createElement('div');
-        status.className = 'wa-delivery-status';
-        status.style.fontSize = '11px';
-        status.style.color = '#bbf7d0';
-        status.style.marginTop = '3px';
-        status.style.textAlign = 'right';
-        status.textContent = statusLabels[msg.delivery_status] || 'Sent';
-        bubble.appendChild(status);
-      }
-
-      row.appendChild(bubble);
-      container.appendChild(row);
-
-      waLastMessageId = id;
-
     }
 
     if (data.messages.length > 0) {
@@ -5050,6 +5176,7 @@ app.get('/whatsapp/updates', requireLogin, async function(req, res) {
 });
 
 app.post('/whatsapp/send', requireLogin, async function(req, res) {
+
   try {
     const to = String(req.body.to || '').trim();
     const message = String(req.body.message || '').trim();
