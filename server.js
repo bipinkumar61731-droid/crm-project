@@ -581,31 +581,99 @@ textarea:focus{
 }
 
 @media(max-width:600px){
-  .main{
-    padding:15px;
+  .sidebar{
+    display:flex;
+    flex-direction:row;
+    align-items:center;
+    gap:6px;
+    padding:10px;
+    overflow-x:auto;
+    overflow-y:hidden;
+    white-space:nowrap;
+    -webkit-overflow-scrolling:touch;
   }
 
-  .grid,
-  .form-grid,
-  .quick{
-    grid-template-columns:1fr;
+  .logo{
+    display:none;
+  }
+
+  .nav-link{
+    display:inline-block;
+    flex:0 0 auto;
+    padding:10px 12px;
+    margin:0;
+    font-size:13px;
+  }
+
+  .main{
+    padding:14px;
+    width:100%;
+    margin-left:0;
   }
 
   .topbar{
     align-items:flex-start;
     flex-direction:column;
+    gap:10px;
+    margin-bottom:18px;
+  }
+
+  .topbar h1{
+    font-size:23px;
+    overflow-wrap:anywhere;
+  }
+
+  .user-box{
+    max-width:100%;
+    overflow-wrap:anywhere;
+  }
+
+  .grid,
+  .form-grid,
+  .quick,
+  .grid-2{
+    grid-template-columns:minmax(0,1fr);
+  }
+
+  .card{
+    padding:15px;
+    border-radius:12px;
+  }
+
+  input,
+  select,
+  textarea{
+    font-size:16px;
+    min-width:0;
+  }
+
+  .search-row{
+    grid-template-columns:minmax(0,1fr);
+  }
+
+  .actions,
+  .action-buttons{
+    gap:8px;
+  }
+
+  .table-wrap{
+    max-width:100%;
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
   }
 
   table{
     font-size:13px;
+    min-width:520px;
   }
 
-  th,td{
-    padding:9px 6px;
+  th,
+  td{
+    padding:9px 7px;
   }
 
-  .table-wrap{
-    overflow-x:auto;
+  .login-box{
+    padding:22px;
   }
 }
 </style>
