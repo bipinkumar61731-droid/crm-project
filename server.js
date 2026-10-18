@@ -580,100 +580,138 @@ textarea:focus{
   }
 }
 
-@media(max-width:600px){
-  .sidebar{
-    display:flex;
-    flex-direction:row;
-    align-items:center;
-    gap:6px;
-    padding:10px;
-    overflow-x:auto;
-    overflow-y:hidden;
-    white-space:nowrap;
-    -webkit-overflow-scrolling:touch;
+
+@media (max-width: 600px) {
+  .layout {
+    display: block;
+    min-height: 100vh;
+    padding-bottom: 76px;
   }
 
-  .logo{
-    display:none;
+  .sidebar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    z-index: 1000;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 5px;
+    width: 100%;
+    padding: 9px 8px;
+    margin: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
+    background: #07162e;
+    border-top: 1px solid #243c60;
+    box-shadow: 0 -5px 20px rgba(0, 0, 0, 0.25);
+    -webkit-overflow-scrolling: touch;
   }
 
-  .nav-link{
-    display:inline-block;
-    flex:0 0 auto;
-    padding:10px 12px;
-    margin:0;
-    font-size:13px;
+  .logo {
+    display: none;
   }
 
-  .main{
-    padding:14px;
-    width:100%;
-    margin-left:0;
+  .sidebar .nav-link {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: 10px 12px;
+    margin: 0;
+    border-radius: 12px;
+    font-size: 12px;
+    white-space: nowrap;
   }
 
-  .topbar{
-    align-items:flex-start;
-    flex-direction:column;
-    gap:10px;
-    margin-bottom:18px;
+  .sidebar .nav-link:hover,
+  .sidebar .nav-link.active {
+    background: #1458c8;
+    color: #fff;
   }
 
-  .topbar h1{
-    font-size:23px;
-    overflow-wrap:anywhere;
+  .main {
+    width: 100%;
+    min-width: 0;
+    margin-left: 0;
+    padding: 14px;
+    padding-bottom: 24px;
   }
 
-  .user-box{
-    max-width:100%;
-    overflow-wrap:anywhere;
+  .topbar {
+    align-items: center;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+
+  .topbar h1 {
+    font-size: 22px;
+    overflow-wrap: anywhere;
+  }
+
+  .user-box {
+    max-width: 100%;
+    overflow-wrap: anywhere;
   }
 
   .grid,
   .form-grid,
   .quick,
-  .grid-2{
-    grid-template-columns:minmax(0,1fr);
+  .grid-2 {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .card{
-    padding:15px;
-    border-radius:12px;
+  .card {
+    padding: 15px;
+    border-radius: 16px;
   }
 
   input,
   select,
-  textarea{
-    font-size:16px;
-    min-width:0;
+  textarea {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    font-size: 16px;
   }
 
-  .search-row{
-    grid-template-columns:minmax(0,1fr);
+  .search-row {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .actions,
-  .action-buttons{
-    gap:8px;
+  .action-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
   }
 
-  .table-wrap{
-    max-width:100%;
-    overflow-x:auto;
-    -webkit-overflow-scrolling:touch;
+  .table-wrap {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
-  table{
-    font-size:13px;
-    min-width:520px;
+  table {
+    font-size: 13px;
+    min-width: 520px;
   }
 
   th,
-  td{
-    padding:9px 7px;
+  td {
+    padding: 9px 7px;
   }
 
-  .login-box{
-    padding:22px;
+  .login-box {
+    padding: 22px;
   }
 }
 </style>
