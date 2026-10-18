@@ -7,10 +7,120 @@ const crypto = require('crypto');
 const multer = require('multer');
 const { spawn } = require('child_process');
 const ffmpegPath = require('ffmpeg-static');
+const webpush = require('web-push');
 require('dotenv').config();
+const vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
+const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
+const vapidSubject = process.env.VAPID_SUBJECT;
 
+if (vapidPublicKey && vapidPrivateKey && vapidSubject) {
+  webpush.setVapidDetails(
+    vapidSubject,
+    vapidPublicKey,
+    vapidPrivateKey
+  );
+} else {
+  console.warn('Web Push VAPID environment variables are not configured.');
+}
+async function sendIncomingWhatsAppPush(clientId, phone, message) {
+  try {
+    const result = await pool.query(
+      `SELECT id, subscription
+       FROM whatsapp_push_subscriptions
+       WHERE (
+         ($1::integer IS NULL AND role = 'admin' AND client_id IS NULL)
+         OR
+         ($1::integer IS NOT NULL AND role <> 'admin' AND client_id = $1)
+       )`,
+      [clientId]
+    );
+
+    const payload = JSON.stringify({
+      title: 'New WhatsApp message',
+      body: `From ${phone}: ${message}`,
+      url: '/whatsapp'
+    });
+
+    await Promise.allSettled(
+      result.rows.map(async (row) => {
+        try {
+          await webpush.sendNotification(
+            row.subscription,
+            payload
+          );
+        } catch (err) {
+          if (err.statusCode === 404 || err.statusCode === 410) {
+            await pool.query(
+              'DELETE FROM whatsapp_push_subscriptions WHERE id = $1',
+              [row.id]
+            );
+          } else {
+            console.error('WhatsApp push notification failed:', err.message);
+          }
+        }
+      })
+    );
+  } catch (err) {
+    console.error('WhatsApp push error:', err.message);
+  }
+}
 const { Pool } = pg;
 const app = express();
+app.get('/service-worker.js', function (req, res) {
+  res.setHeader('Content-Type', 'application/javascript');
+  res.setHeader('Service-Worker-Allowed', '/');
+
+  res.send(`
+    self.addEventListener('push', function (event) {
+      let data = {};
+
+      try {
+        data = event.data ? event.data.json() : {};
+      } catch (err) {
+        data = {
+          title: 'New WhatsApp message',
+          body: 'You have a new message.'
+        };
+      }
+
+      event.waitUntil(
+        self.registration.showNotification(
+          data.title || 'New WhatsApp message',
+          {
+            body: data.body || 'You have a new message.',
+            icon: '/favicon.ico',
+            data: {
+              url: data.url || '/whatsapp'
+            }
+          }
+        )
+      );
+    });
+
+    self.addEventListener('notificationclick', function (event) {
+      event.notification.close();
+
+      const url = event.notification.data?.url || '/whatsapp';
+
+      event.waitUntil(
+        clients.matchAll({
+          type: 'window',
+          includeUncontrolled: true
+        }).then(function (windows) {
+          for (const windowClient of windows) {
+            if (windowClient.url.startsWith(self.location.origin)) {
+              return windowClient.focus().then(function () {
+                return windowClient.navigate(url);
+              });
+            }
+          }
+
+          return clients.openWindow(url);
+        })
+      );
+    });
+  `);
+});
 const PORT = process.env.PORT || 3000;
 
 const whatsappUpload = multer({
@@ -54,7 +164,20 @@ const pool = new Pool({
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+BP062jDUfjdEVuzyvFf4WDuD4svnFop4BntUvOxnSPx-I4GOaYHnnSoGNnNTs3ec4j7L1jM_KG2HyKZN-xRSUTg  
+app.get('/api/push/public-key', function (req, res) {
+  if (!vapidPublicKey) {
+    return res.status(503).json({
+      success: false,
+      error: 'Web Push public key is not configured'
+    });
+  }
 
+  return res.json({
+    success: true,
+    publicKey: vapidPublicKey
+  });
+});
 async function requireApiKey(req, res, next) {
   try {
     const apiKey = req.headers['x-api-key'];
@@ -179,6 +302,65 @@ function requireAdmin(req, res, next) {
 
   next();
 }
+app.post('/api/push/subscribe', requireLogin, async function (req, res) {
+  try {
+    const user = req.session.user;
+    const subscription = req.body.subscription;
+
+    if (
+      !subscription ||
+      typeof subscription.endpoint !== 'string' ||
+      !subscription.endpoint.trim() ||
+      !subscription.keys ||
+      typeof subscription.keys.p256dh !== 'string' ||
+      typeof subscription.keys.auth !== 'string'
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid push subscription'
+      });
+    }
+
+    const clientId =
+      user.role === 'admin' ? null : user.client_id;
+
+    if (user.role !== 'admin' && !clientId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Client account is not configured'
+      });
+    }
+
+    await pool.query(
+      `INSERT INTO whatsapp_push_subscriptions
+        (user_id, role, client_id, endpoint, subscription, updated_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, NOW())
+       ON CONFLICT (endpoint)
+       DO UPDATE SET
+         user_id = EXCLUDED.user_id,
+         role = EXCLUDED.role,
+         client_id = EXCLUDED.client_id,
+         subscription = EXCLUDED.subscription,
+         updated_at = NOW()`,
+      [
+        user.id,
+        user.role,
+        clientId,
+        subscription.endpoint,
+        JSON.stringify(subscription)
+      ]
+    );
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Push subscription save failed:', err.message);
+
+    return res.status(500).json({
+      success: false,
+      error: 'Could not save push subscription'
+    });
+  }
+});
 function page(title, content, active, role, displayName = '') {
       const nav = [    ['/', 'Dashboard', 'dashboard'],
     ['/customers', 'Customers', 'customers'],
@@ -732,14 +914,110 @@ textarea:focus{
 <div class="topbar">
   <h1>${esc(title)}</h1>
   <div class="user-box">
-  ${role === 'admin' ? '💖 Vipin_0_6 🖤' : '☠️ vipin_B2B ⚠️'}
-</div></div>
+  ${role === 'admin' ? 'ðŸ’– Vipin_0_6 ðŸ–¤' : 'â˜ ï¸ vipin_B2B âš ï¸'}
+</div>
+
+<button
+  type="button"
+  class="btn"
+  id="enablePushNotifications"
+  style="margin-left:10px;"
+>
+  Enable Notifications
+</button>
+</div>
 
 ${content}
 
 </main>
 </div>
+<script>
+(function () {
+  const button = document.getElementById('enablePushNotifications');
 
+  if (!button) return;
+
+  button.addEventListener('click', async function () {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      alert('Push notifications are not supported by this browser.');
+      return;
+    }
+
+    if (!window.isSecureContext) {
+      alert('Notifications require HTTPS or localhost.');
+      return;
+    }
+
+    try {
+      button.disabled = true;
+      button.textContent = 'Enabling...';
+
+      const permission = await Notification.requestPermission();
+
+      if (permission !== 'granted') {
+        alert('Notification permission was not granted.');
+        return;
+      }
+
+      const keyResponse = await fetch('/api/push/public-key');
+
+      if (!keyResponse.ok) {
+        throw new Error('Could not load the public key.');
+      }
+
+      const keyData = await keyResponse.json();
+
+      function urlBase64ToUint8Array(base64String) {
+        const padding = '='.repeat((4 - base64String.length % 4) % 4);
+        const base64 = (base64String + padding)
+          .replace(/-/g, '+')
+          .replace(/_/g, '/');
+
+        const raw = window.atob(base64);
+        return Uint8Array.from(raw, char => char.charCodeAt(0));
+      }
+
+      const registration = await navigator.serviceWorker.register('/service-worker.js');
+
+      let subscription = await registration.pushManager.getSubscription();
+
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(keyData.publicKey)
+        });
+      }
+
+      const saveResponse = await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          subscription: subscription
+        })
+      });
+
+      const saveData = await saveResponse.json();
+
+      if (!saveResponse.ok || !saveData.success) {
+        throw new Error(saveData.error || 'Could not save subscription.');
+      }
+
+      button.textContent = 'Notifications Enabled';
+      alert('Push notifications enabled successfully.');
+    } catch (error) {
+      console.error('Push notification setup failed:', error);
+      alert('Could not enable notifications: ' + error.message);
+    } finally {
+      if (button.textContent !== 'Notifications Enabled') {
+        button.textContent = 'Enable Notifications';
+      }
+      button.disabled = false;
+    }
+  });
+})();
+</script>
 </body>
 </html>
 `;
@@ -1026,6 +1304,23 @@ await pool.query(`
   CREATE UNIQUE INDEX IF NOT EXISTS whatsapp_contacts_global_unique_idx
   ON whatsapp_contacts (phone_number_id, phone)
   WHERE client_id IS NULL
+`);
+await pool.query(`
+  CREATE TABLE IF NOT EXISTS whatsapp_push_subscriptions (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role VARCHAR(30) NOT NULL,
+    client_id INTEGER REFERENCES clients(id) ON DELETE CASCADE,
+    endpoint TEXT NOT NULL UNIQUE,
+    subscription JSONB NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+  )
+`);
+
+await pool.query(`
+  CREATE INDEX IF NOT EXISTS whatsapp_push_subscriptions_account_idx
+  ON whatsapp_push_subscriptions (role, client_id)
 `);
 console.log('Database setup completed.');
 }
@@ -4256,7 +4551,7 @@ console.log('WhatsApp contact profile:', {
           whatsappMessageId || null
         ]
       );
-
+      await sendIncomingWhatsAppPush(clientId, phone, message);
       console.log('Incoming WhatsApp message saved', {
         clientId,
         phone
