@@ -164,7 +164,7 @@ const pool = new Pool({
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
-BP062jDUfjdEVuzyvFf4WDuD4svnFop4BntUvOxnSPx-I4GOaYHnnSoGNnNTs3ec4j7L1jM_KG2HyKZN-xRSUTg  
+
 app.get('/api/push/public-key', function (req, res) {
   if (!vapidPublicKey) {
     return res.status(503).json({
