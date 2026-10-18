@@ -1680,6 +1680,120 @@ const whatsappMessages = whatsappMessagesResult.rows;
             padding:15px;
           }
         }
+
+@media (max-width: 600px) {
+  /* Dashboard only: mobile layout */
+  body:has(.dash-head) .topbar h1 {
+    display: none;
+  }
+
+  .dash-head {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+
+  .dash-head h1 {
+    margin: 0 0 6px;
+    font-size: 25px;
+    line-height: 1.25;
+  }
+
+  .dash-head p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .dash-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .dash-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: 10px;
+    text-align: center;
+    font-size: 14px;
+    border-radius: 12px;
+  }
+
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+
+  .kpi {
+    min-width: 0;
+    padding: 15px;
+    border-radius: 16px;
+  }
+
+  .kpi-label {
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  .kpi-number {
+    font-size: 28px;
+    line-height: 1.25;
+    margin: 8px 0;
+  }
+
+  .kpi-small {
+    font-size: 12px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  .dash-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .quick-actions,
+  .status-box,
+  .today-box,
+  .panel {
+    min-width: 0;
+    padding: 15px;
+    border-radius: 16px;
+  }
+
+  .action-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .action-btn {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .status-item {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .status-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+}
+
       </style>
 
       <div class="dash-head">
