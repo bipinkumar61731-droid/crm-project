@@ -4619,7 +4619,111 @@ if (!isAdmin && !clientId) {
           }
 
         }
+        /* WhatsApp mobile app-style layout */
+        @media (max-width: 600px) {
+          .wa-layout {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            min-height: 0;
+          }
 
+          .wa-list,
+          .wa-chat {
+            width: 100%;
+            min-width: 0;
+            border-radius: 18px;
+            border: 1px solid #263550;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+          }
+
+          .wa-list {
+            max-height: 235px;
+            overflow-y: auto;
+          }
+
+          .wa-header {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            padding: 15px;
+            background: #111a2d;
+            font-size: 16px;
+            overflow-wrap: anywhere;
+          }
+
+          .wa-messages {
+            min-height: 320px;
+            max-height: 52vh;
+            padding: 14px 10px;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+          }
+
+          .wa-messages > div > div {
+            max-width: 88% !important;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+          }
+
+          .wa-messages img {
+            height: auto;
+            object-fit: contain;
+          }
+
+          .wa-messages audio {
+            max-width: 100%;
+          }
+
+          .wa-compose {
+            position: sticky;
+            bottom: 0;
+            z-index: 3;
+            padding: 12px;
+            background: #111827;
+            border-top: 1px solid #2a3852;
+          }
+
+          .wa-compose form {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+          }
+
+          .wa-compose input[type="text"],
+          .wa-compose input:not([type]),
+          .wa-compose input[type="file"] {
+            width: 100%;
+            min-width: 0;
+            font-size: 16px;
+          }
+
+          .wa-compose input[type="file"] {
+            padding: 10px;
+            font-size: 13px;
+          }
+
+          .wa-compose form > div {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+          }
+
+          .wa-compose button {
+            min-height: 42px;
+            padding: 10px 13px;
+            border-radius: 12px;
+          }
+
+          .wa-compose button[type="submit"] {
+            flex: 1;
+          }
+
+          .wa-compose #waRecordingPreview {
+            max-width: 100%;
+          }
+        }
       </style>
 
       <div class="wa-layout">
