@@ -585,7 +585,7 @@ textarea:focus{
   .layout {
     display: block;
     min-height: 100vh;
-    padding-bottom: 76px;
+   padding-bottom: calc(100px + env(safe-area-inset-bottom));
   }
 
   .sidebar {
@@ -1770,23 +1770,44 @@ const whatsappMessages = whatsappMessagesResult.rows;
     border-radius: 16px;
   }
 
-  .action-buttons {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+    .action-buttons {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
   }
 
   .action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    min-height: 44px;
     max-width: 100%;
+    padding: 10px;
+    text-align: center;
+    overflow-wrap: anywhere;
+    border-radius: 12px;
+    box-sizing: border-box;
+  }
+    .status-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    min-width: 0;
+  }
+
+  .status-item span {
+    flex: 1 1 140px;
+    min-width: 0;
     overflow-wrap: anywhere;
   }
 
-  .status-item {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+  .status-item strong {
+    flex: 0 0 auto;
+    overflow-wrap: anywhere;
   }
-
   .status-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
