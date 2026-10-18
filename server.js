@@ -4580,21 +4580,20 @@ if (!isAdmin && !clientId) {
 
           </div>
 
-                   <div id="waConversationRows">
-            ${
-              conversationRows ||
-              `
-                <div style="
-                  padding:20px;
-                  color:#94a3b8;
-                ">
-                  No WhatsApp conversations yet.
-                </div>
-              `
-            }
-          </div>
+          ${
+            conversationRows ||
+            `
+              <div style="
+                padding:20px;
+                color:#94a3b8;
+              ">
+                No WhatsApp conversations yet.
+              </div>
+            `
+          }
 
         </div>
+
 
         <!-- RIGHT CHAT -->
 
@@ -4881,115 +4880,39 @@ row.dataset.messageId = String(id);
 
 pollWhatsAppUpdates();
 setInterval(pollWhatsAppUpdates, 3000);
-
 async function refreshWhatsAppConversationList() {
   try {
     const searchInput = document.querySelector(
       '.wa-list form input[name="search"]'
     );
+
     const search = searchInput ? searchInput.value : '';
 
     const response = await fetch(
-      '/whatsapp/conversations-updates?search=' +
-      encodeURIComponent(search)
+      '/whatsapp?search=' + encodeURIComponent(search),
+      {
+        headers: { 'X-Requested-With': 'fetch' }
+      }
     );
 
     if (!response.ok) return;
 
-    const data = await response.json();
+    const html = await response.text();
+    const parsed = new DOMParser().parseFromString(html, 'text/html');
 
-    if (!data.success || !Array.isArray(data.conversations)) {
-      return;
+    const newList = parsed.querySelector('.wa-list');
+    const currentList = document.querySelector('.wa-list');
+
+    if (newList && currentList) {
+      currentList.innerHTML = newList.innerHTML;
     }
-
-    const rowsContainer = document.getElementById('waConversationRows');
-    if (!rowsContainer) return;
-
-    const escapeHtml = value =>
-      String(value ?? '').replace(/[&<>"']/g, char => {
-        const entities = {
-          '&': '&amp;',
-          '<': '&lt;',
-          '>': '&gt;',
-          '"': '&quot;',
-          "'": '&#39;'
-        };
-        return entities[char];
-      });
-
-    if (data.conversations.length === 0) {
-      rowsContainer.innerHTML =
-        '<div style="padding:20px;color:#94a3b8;">' +
-        'No WhatsApp conversations yet.' +
-        '</div>';
-      return;
-    }
-
-    rowsContainer.innerHTML = data.conversations.map(chat => {
-      const phone = String(chat.phone || '');
-      const phoneNumberId = String(chat.phone_number_id || '');
-      const clientId = chat.client_id == null
-        ? ''
-        : String(chat.client_id);
-      const name = String(chat.contact_name || phone);
-      const unread = Number(chat.unread_count) || 0;
-      const count = Number(chat.message_count) || 0;
-
-      const active = phone === waSelectedPhone
-        ? 'background:#1d2945;'
-        : '';
-
-      const unreadBadge = unread > 0
-        ? '<span style="background:#22c55e;color:#052e16;' +
-          'padding:3px 8px;border-radius:20px;font-size:11px;' +
-          'font-weight:800;">' + unread + '</span>'
-        : '';
-
-      return '<div style="border-bottom:1px solid #26304a;' +
-        active + '">' +
-
-        '<a href="/whatsapp?phone=' +
-        encodeURIComponent(phone) +
-        '" style="display:block;padding:14px 14px 8px;' +
-        'text-decoration:none;color:white;">' +
-
-        '<div style="display:flex;justify-content:space-between;gap:8px;">' +
-        '<strong>' + escapeHtml(name) + '</strong>' +
-        unreadBadge +
-        '</div>' +
-
-        '<div style="color:#94a3b8;font-size:12px;margin-top:5px;">' +
-        count + ' messages</div>' +
-        '</a>' +
-
-        '<form method="POST" action="/whatsapp/delete-conversation" ' +
-        'onsubmit="return confirm(\'Kya is conversation ke saved CRM messages delete karne hain?\')" ' +
-        'style="padding:0 14px 12px;">' +
-
-        '<input type="hidden" name="phone" value="' +
-        escapeHtml(phone) + '">' +
-
-        '<input type="hidden" name="phone_number_id" value="' +
-        escapeHtml(phoneNumberId) + '">' +
-
-        '<input type="hidden" name="client_id" value="' +
-        escapeHtml(clientId) + '">' +
-
-        '<button type="submit" style="background:#991b1b;color:white;' +
-        'border:1px solid #ef4444;border-radius:7px;padding:6px 10px;' +
-        'cursor:pointer;font-size:12px;">' +
-        '🗑️ Delete conversation</button>' +
-
-        '</form></div>';
-    }).join('');
-
   } catch (err) {
     console.error('WhatsApp conversation list refresh error:', err);
   }
 }
 
-refreshWhatsAppConversationList();
-setInterval(refreshWhatsAppConversationList, 5000);let waMediaRecorder = null;
+setInterval(refreshWhatsAppConversationList, 5000);
+let waMediaRecorder = null;
 let waRecordedChunks = [];
 
 async function startWhatsAppRecording() {
@@ -5200,91 +5123,7 @@ if (recordingPreview.src && recordingPreview.src.startsWith('blob:')) {
 
   }
 });
-app.get('/whatsapp/conversations-updates', requireLogin, async function(req, res) {
-  try {
-    const isAdmin = req.session.user.role === 'admin';
-    const clientId = req.session.user.client_id;
-    const search = String(req.query.search || '').trim();
 
-    if (!isAdmin && (!Number.isSafeInteger(clientId) || clientId <= 0)) {
-      return res.status(403).json({
-        success: false,
-        error: 'Valid client_id is required'
-      });
-    }
-
-    let query = `
-      SELECT
-        wm.phone,
-        wm.phone_number_id,
-        wm.client_id,
-        MAX(wm.id) AS last_id,
-        MAX(wm.created_at) AS last_time,
-        COUNT(*)::int AS message_count,
-        COUNT(*) FILTER (
-          WHERE wm.direction = 'incoming'
-            AND wm.is_read = false
-        )::int AS unread_count,
-        COALESCE(
-          (
-            SELECT wc.name
-            FROM whatsapp_contacts wc
-            WHERE wc.phone = wm.phone
-              AND wc.phone_number_id = wm.phone_number_id
-              AND wc.client_id IS NOT DISTINCT FROM wm.client_id
-            ORDER BY wc.updated_at DESC
-            LIMIT 1
-          ),
-          (
-            SELECT c.name
-            FROM customers c
-            WHERE regexp_replace(COALESCE(c.phone, ''), '[^0-9]', '', 'g')
-                = regexp_replace(wm.phone, '[^0-9]', '', 'g')
-              AND c.client_id IS NOT DISTINCT FROM wm.client_id
-            ORDER BY c.id DESC
-            LIMIT 1
-          ),
-          wm.phone
-        ) AS contact_name
-      FROM whatsapp_messages wm
-    `;
-
-    const params = [];
-    const filters = [];
-
-    if (!isAdmin) {
-      params.push(clientId);
-      filters.push(`wm.client_id = $${params.length}`);
-    }
-
-    if (search) {
-      params.push('%' + search + '%');
-      filters.push(`wm.phone ILIKE $${params.length}`);
-    }
-
-    if (filters.length) {
-      query += ` WHERE ${filters.join(' AND ')}`;
-    }
-
-    query += `
-      GROUP BY wm.phone, wm.phone_number_id, wm.client_id
-      ORDER BY MAX(wm.id) DESC
-    `;
-
-    const result = await pool.query(query, params);
-
-    return res.json({
-      success: true,
-      conversations: result.rows
-    });
-  } catch (err) {
-    console.error('WhatsApp conversation list update error:', err);
-    return res.status(500).json({
-      success: false,
-      error: 'Could not load conversations'
-    });
-  }
-});
 app.get('/whatsapp/updates', requireLogin, async function(req, res) {
   try {
     const phone = String(req.query.phone || '').trim();
