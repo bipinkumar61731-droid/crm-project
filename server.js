@@ -4880,6 +4880,38 @@ row.dataset.messageId = String(id);
 
 pollWhatsAppUpdates();
 setInterval(pollWhatsAppUpdates, 3000);
+async function refreshWhatsAppConversationList() {
+  try {
+    const searchInput = document.querySelector(
+      '.wa-list form input[name="search"]'
+    );
+
+    const search = searchInput ? searchInput.value : '';
+
+    const response = await fetch(
+      '/whatsapp?search=' + encodeURIComponent(search),
+      {
+        headers: { 'X-Requested-With': 'fetch' }
+      }
+    );
+
+    if (!response.ok) return;
+
+    const html = await response.text();
+    const parsed = new DOMParser().parseFromString(html, 'text/html');
+
+    const newList = parsed.querySelector('.wa-list');
+    const currentList = document.querySelector('.wa-list');
+
+    if (newList && currentList) {
+      currentList.innerHTML = newList.innerHTML;
+    }
+  } catch (err) {
+    console.error('WhatsApp conversation list refresh error:', err);
+  }
+}
+
+setInterval(refreshWhatsAppConversationList, 5000);
 let waMediaRecorder = null;
 let waRecordedChunks = [];
 
