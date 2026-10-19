@@ -4529,10 +4529,21 @@ console.log('WhatsApp contact profile:', {
 }
       if (!phone) continue;
 
-      let message = '';
+           let message = '';
+      let mediaId = null;
+      let mediaMimeType = null;
+      let mediaType = null;
 
       if (msg.type === 'text') {
         message = msg.text?.body || '';
+      } else if (
+        ['audio', 'image', 'video', 'document', 'sticker'].includes(msg.type)
+      ) {
+        const media = msg[msg.type];
+        mediaId = media?.id || null;
+        mediaMimeType = media?.mime_type || null;
+        mediaType = msg.type;
+        message = `[${msg.type} message]`;
       } else {
         message = `[${msg.type || 'unknown'} message]`;
       }
@@ -4540,17 +4551,22 @@ console.log('WhatsApp contact profile:', {
       await pool.query(
         `INSERT INTO whatsapp_messages
           (client_id, phone_number_id, phone, message,
-           direction, whatsapp_message_id)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
+           direction, whatsapp_message_id, media_type,
+           media_id, media_mime_type)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           clientId,
           phoneNumberId,
           phone,
           message,
           'incoming',
-          whatsappMessageId || null
+          whatsappMessageId || null,
+          mediaType,
+          mediaId,
+          mediaMimeType
         ]
       );
+
       await sendIncomingWhatsAppPush(clientId, phone, message);
       console.log('Incoming WhatsApp message saved', {
         clientId,
