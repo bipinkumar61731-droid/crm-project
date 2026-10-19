@@ -4301,7 +4301,22 @@ app.post('/clients/:id/edit', requireAdmin, async function(req, res) {
           'WhatsApp Phone Number ID and Access Token are required for first-time setup.'
         );
       }
+      const duplicatePhoneResult = await db.query(
+        `SELECT client_id
+         FROM client_whatsapp_settings
+         WHERE phone_number_id = $1
+           AND client_id <> $2
+           AND is_active = TRUE
+         LIMIT 1`,
+        [finalPhoneNumberId, id]
+      );
 
+      if (duplicatePhoneResult.rows.length > 0) {
+        await db.query('ROLLBACK');
+        return res.status(409).send(
+          'This WhatsApp Phone Number ID is already assigned to another active client.'
+        );
+      }
       await db.query(
         `INSERT INTO client_whatsapp_settings
           (client_id, phone_number_id, display_phone_number,
