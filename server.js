@@ -4421,7 +4421,7 @@ app.get('/webhook/whatsapp', function(req, res) {
 
   res.sendStatus(403);
 });
-app.post('/webhook/whatsapp', async function(req, res) {
+app.post('/webhook/whatsapp', async function(req, res) {S
   try {
     console.log('WhatsApp webhook received');
 
@@ -4433,6 +4433,7 @@ app.post('/webhook/whatsapp', async function(req, res) {
 
     const messages = value.messages || [];
 const phoneNumberId = value.metadata?.phone_number_id || '';
+console.log('Incoming webhook Phone Number ID:', phoneNumberId);
 if (!phoneNumberId) {
   console.warn('Webhook missing phone_number_id');
   return res.sendStatus(200);
@@ -4943,7 +4944,7 @@ if (!isAdmin && !clientId) {
   }).join('');
 
     // Message bubbles
-    
+
     const messageRows =
       messages.map(msg => {
 
@@ -5219,14 +5220,51 @@ if (!isAdmin && !clientId) {
             flex: 1;
           }
 
-          .wa-compose #waRecordingPreview {
+                             .wa-compose #waRecordingPreview {
             max-width: 100%;
           }
-        }
+          .wa-back {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-right: 10px;
+            padding: 8px 11px;
+            border-radius: 10px;
+            background: #075e54;
+            color: #ffffff;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 700;
+            white-space: nowrap;
+          }
+
+          .wa-back:hover {
+            background: #128c7e;
+            color: #ffffff;
+          }
+
+          /* WhatsApp mobile full-screen conversation */
+          .wa-layout.wa-chat-open .wa-list {
+            display: none;
+          }
+
+          .wa-layout:not(.wa-chat-open) .wa-chat {
+            display: none;
+          }
+
+          .wa-layout.wa-chat-open .wa-chat {
+            min-height: calc(100dvh - 100px);
+            height: calc(100dvh - 100px);
+          }
+
+          .wa-layout.wa-chat-open .wa-messages {
+            flex: 1;
+            min-height: 0;
+            max-height: none;
+          }
       </style>
 
-      <div class="wa-layout">
-
+<div class="wa-layout ${phone ? 'wa-chat-open' : ''}">
         <!-- LEFT CONVERSATION LIST -->
 
         <div class="wa-list">
@@ -5270,16 +5308,13 @@ if (!isAdmin && !clientId) {
 
         <div class="wa-chat">
 
-          <div class="wa-header">
-
-            ${
-              phone
-                ? `💬 WhatsApp — ${esc(phone)}`
-                : '💬 WhatsApp Inbox'
-            }
-
-          </div>
-
+         <div class="wa-header">
+  ${
+    phone
+      ? `<a class="wa-back" href="/whatsapp" aria-label="Back to conversations">← Chats</a> <span>💬 WhatsApp — ${esc(phone)}</span>`
+      : '💬 WhatsApp Inbox'
+  }
+</div>
 
           <!-- MESSAGES -->
 
@@ -5311,7 +5346,7 @@ if (!isAdmin && !clientId) {
             phone
               ? `
 
-               
+
 <!-- REPLY BOX -->
 
 <div class="wa-compose">
@@ -5484,7 +5519,7 @@ row.dataset.messageId = String(id);
         hour12: true
       });
 
-      
+
       const mediaUrl = msg.media_id
         ? '/whatsapp/media/' + encodeURIComponent(msg.media_id)
         : '';
@@ -5655,7 +5690,7 @@ function stopWhatsAppRecording() {
   }
 }
 
-                  
+
 async function sendWhatsAppMessage(event) {
   event.preventDefault();
 
@@ -5844,7 +5879,7 @@ app.get('/whatsapp/updates', requireLogin, async function(req, res) {
 
     const result = await pool.query(query, params);
 
-     
+
     let statusQuery = `
       SELECT id, delivery_status
       FROM whatsapp_messages
@@ -5964,7 +5999,7 @@ app.post('/whatsapp/send', requireLogin, async function(req, res) {
       });
     }
 
-   
+
     await pool.query(
       `INSERT INTO whatsapp_messages
        (client_id, phone_number_id, phone, message,
@@ -6052,7 +6087,7 @@ let uploadBuffer = file.buffer;
       uploadFileName = 'recorded-audio.ogg';
     }
 
-   
+
     const isAdmin = req.session.user.role === 'admin';
     const clientId = req.session.user.client_id;
 
