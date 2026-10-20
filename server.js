@@ -4784,10 +4784,13 @@ if (!isAdmin && !clientId) {
       conversationsQuery,
       params
     );
-    // Open only a conversation visible to this user.
+        // Show the chat list when the user explicitly returns to Chats.
+    const showConversationList = req.query.view === 'chats';
     let phone = selectedPhone;
 
-    if (
+    if (showConversationList) {
+      phone = '';
+    } else if (
       !phone ||
       !conversationsResult.rows.some(chat => chat.phone === phone)
     ) {
@@ -5311,7 +5314,7 @@ if (!isAdmin && !clientId) {
          <div class="wa-header">
   ${
     phone
-      ? `<a class="wa-back" href="/whatsapp" aria-label="Back to conversations">← Chats</a> <span>💬 WhatsApp — ${esc(phone)}</span>`
+      ? `<a class="wa-back" href="/whatsapp?view=chats" aria-label="Back to conversations">← Chats</a> <span>💬 WhatsApp — ${esc(phone)}</span>`
       : '💬 WhatsApp Inbox'
   }
 </div>
