@@ -4421,7 +4421,7 @@ app.get('/webhook/whatsapp', function(req, res) {
 
   res.sendStatus(403);
 });
-app.post('/webhook/whatsapp', async function(req, res) {S
+app.post('/webhook/whatsapp', async function(req, res) {
   try {
     console.log('WhatsApp webhook received');
 
