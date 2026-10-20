@@ -4698,6 +4698,8 @@ app.get('/whatsapp', requireLogin, async function(req, res) {
   try {
     const search = String(req.query.search || '').trim();
     const selectedPhone = String(req.query.phone || '').trim();
+const selectedPhoneNumberId = String(req.query.phone_number_id || '').trim();
+const selectedConversationClientId = String(req.query.client_id || '').trim();
     const isAdmin = req.session.user.role === 'admin';
     const clientId = req.session.user.client_id;
 if (!isAdmin && !clientId) {
@@ -4785,55 +4787,77 @@ if (!isAdmin && !clientId) {
       params
     );
         // Show the chat list when the user explicitly returns to Chats.
-    const showConversationList = req.query.view === 'chats';
-    let phone = selectedPhone;
+const showConversationList = req.query.view === 'chats';
 
-    if (showConversationList) {
-      phone = '';
-    } else if (
-      !phone ||
-      !conversationsResult.rows.some(chat => chat.phone === phone)
+let phone = '';
+let phoneNumberId = '';
+let conversationClientId = null;
+let selectedChat = null;
+
+if (!showConversationList) {
+  selectedChat = conversationsResult.rows.find(chat => {
+    if (
+      chat.phone !== selectedPhone ||
+      chat.phone_number_id !== selectedPhoneNumberId
     ) {
-      phone = conversationsResult.rows.length
-        ? conversationsResult.rows[0].phone
-        : '';
+      return false;
     }
 
-    // Load messages with the same client restriction.
+    if (!isAdmin) {
+      return Number(chat.client_id) === Number(clientId);
+    }
+
+    if (selectedConversationClientId === 'global') {
+      return chat.client_id == null;
+    }
+
+    return String(chat.client_id) === selectedConversationClientId;
+  });
+
+  if (!selectedChat && conversationsResult.rows.length > 0) {
+    selectedChat = conversationsResult.rows[0];
+  }
+
+  if (selectedChat) {
+    phone = selectedChat.phone;
+    phoneNumberId = selectedChat.phone_number_id;
+    conversationClientId = selectedChat.client_id;
+  }
+} 
+       // Load messages with the same client restriction.
     let messages = [];
 
     if (phone) {
-      const messageParams = [phone];
+      const messageParams = [
+  phone,
+  phoneNumberId,
+  conversationClientId
+];
 
-      let messageQuery = `
-        SELECT
-                  id,
-        phone,
-        message,
-        direction,
-               created_at,
-        media_type,
-        media_id,
-        media_mime_type,
-        delivery_status
-      FROM whatsapp_messages
-        WHERE phone = $1
-      `;
+let messageQuery = `
+  SELECT
+    id,
+    phone,
+    message,
+    direction,
+    created_at,
+    media_type,
+    media_id,
+    media_mime_type,
+    delivery_status
+  FROM whatsapp_messages
+  WHERE phone = $1
+    AND phone_number_id IS NOT DISTINCT FROM $2
+    AND client_id IS NOT DISTINCT FROM $3::integer
+  ORDER BY id ASC
+`;
 
-      if (!isAdmin) {
-        messageParams.push(clientId);
-        messageQuery += ` AND client_id = $${messageParams.length}`;
-      }
+const messageResult = await pool.query(
+  messageQuery,
+  messageParams
+);
 
-      messageQuery += ` ORDER BY id ASC`;
-
-      const messageResult = await pool.query(
-        messageQuery,
-        messageParams
-      );
-
-      messages = messageResult.rows;
-    }
+messages = messageResult.rows;    }
 
     // Conversation list HTML
     const conversationRows =
@@ -4851,7 +4875,7 @@ if (!isAdmin && !clientId) {
       ">
 
         <a
-          href="/whatsapp?phone=${encodeURIComponent(chat.phone)}"
+         href="/whatsapp?phone=${encodeURIComponent(chat.phone)}&phone_number_id=${encodeURIComponent(chat.phone_number_id || '')}&client_id=${chat.client_id == null ? 'global' : encodeURIComponent(String(chat.client_id))}"
           style="
             display:block;
             padding:14px 14px 8px;
@@ -5419,8 +5443,13 @@ if (!isAdmin && !clientId) {
 
 
                 <script>
-
 const waSelectedPhone = ${JSON.stringify(phone)};
+const waSelectedPhoneNumberId = ${JSON.stringify(phoneNumberId)};
+const waSelectedClientId = ${JSON.stringify(
+  conversationClientId == null
+    ? 'global'
+    : String(conversationClientId)
+)};
 let waLastMessageId = ${messages.length ? Number(messages[messages.length - 1].id) : 0};
 let waPollingInProgress = false;
 
@@ -5434,12 +5463,15 @@ async function pollWhatsAppUpdates() {
   waPollingInProgress = true;
 
   try {
-    const response = await fetch(
-      '/whatsapp/updates?phone=' +
-      encodeURIComponent(waSelectedPhone) +
-      '&after=' + waLastMessageId
-    );
-
+   const response = await fetch(
+  '/whatsapp/updates?phone=' +
+  encodeURIComponent(waSelectedPhone) +
+  '&phone_number_id=' +
+  encodeURIComponent(waSelectedPhoneNumberId) +
+  '&client_id=' +
+  encodeURIComponent(waSelectedClientId) +
+  '&after=' + waLastMessageId
+);
     if (!response.ok) return;
 
     const data = await response.json();
@@ -5835,72 +5867,106 @@ if (recordingPreview.src && recordingPreview.src.startsWith('blob:')) {
 
 app.get('/whatsapp/updates', requireLogin, async function(req, res) {
   try {
-    const phone = String(req.query.phone || '').trim();
-    const after = Number(req.query.after || 0);
+   const phone = String(req.query.phone || '').trim();
+const phoneNumberId = String(req.query.phone_number_id || '').trim();
+const requestedClientId = String(req.query.client_id || '').trim();
+const after = Number(req.query.after || 0);
+
+if (
+  !phone ||
+  !phoneNumberId ||
+  !Number.isSafeInteger(after) ||
+  after < 0
+) {
+  return res.status(400).json({
+    success: false,
+    error: 'Invalid conversation or message ID'
+  });
+}
+
+const isAdmin = req.session.user.role === 'admin';
+let conversationClientId;
+
+if (isAdmin) {
+  if (requestedClientId === 'global') {
+    conversationClientId = null;
+  } else {
+    conversationClientId = Number(requestedClientId);
 
     if (
-      !phone ||
-      !Number.isSafeInteger(after) ||
-      after < 0
+      !Number.isSafeInteger(conversationClientId) ||
+      conversationClientId <= 0
     ) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid phone or message ID'
+        error: 'Invalid conversation client ID'
       });
     }
+  }
+} else {
+  conversationClientId = Number(req.session.user.client_id);
 
-    const isAdmin = req.session.user.role === 'admin';
-    const clientId = req.session.user.client_id;
-        let query = `
-      SELECT
-        id,
-        phone,
-        message,
-        direction,
-        created_at,
-        delivery_status,
-        media_id,
-        media_type,
-        media_mime_type
-      FROM whatsapp_messages
-      WHERE phone = $1
-        AND id > $2
-    `;
-    const params = [phone, after];
+  if (
+    !Number.isSafeInteger(conversationClientId) ||
+    conversationClientId <= 0
+  ) {
+    return res.status(403).json({
+      success: false,
+      error: 'Valid client account is required'
+    });
+  }
+}
 
-    if (!isAdmin) {
-      if (!Number.isSafeInteger(clientId) || clientId <= 0) {
-  return res.status(400).json({
-    success: false,
-    error: 'valid client_id is required'
-  });
-}      params.push(clientId);
-      query += ` AND client_id = $${params.length}`;
-    }
+const query = `
+  SELECT
+    id,
+    phone,
+    message,
+    direction,
+    created_at,
+    delivery_status,
+    media_id,
+    media_type,
+    media_mime_type
+  FROM whatsapp_messages
+  WHERE phone = $1
+    AND phone_number_id = $2
+    AND id > $3
+    AND client_id IS NOT DISTINCT FROM $4::integer
+  ORDER BY id ASC
+  LIMIT 100
+`;
 
-    query += ` ORDER BY id ASC LIMIT 100`;
+const params = [
+  phone,
+  phoneNumberId,
+  after,
+  conversationClientId
+];
 
-    const result = await pool.query(query, params);
+const result = await pool.query(query, params);
 
+const statusQuery = `
+  SELECT id, delivery_status
+  FROM whatsapp_messages
+  WHERE phone = $1
+    AND phone_number_id = $2
+    AND direction = 'outgoing'
+    AND client_id IS NOT DISTINCT FROM $3::integer
+  ORDER BY id DESC
+  LIMIT 200
+`;
 
-    let statusQuery = `
-      SELECT id, delivery_status
-      FROM whatsapp_messages
-      WHERE phone = $1
-        AND direction = 'outgoing'
-    `;
+const statusParams = [
+  phone,
+  phoneNumberId,
+  conversationClientId
+];
 
-    const statusParams = [phone];
-
-    if (!isAdmin) {
-      statusParams.push(clientId);
-      statusQuery += ` AND client_id = $${statusParams.length}`;
-    }
-
-    statusQuery += ` ORDER BY id DESC LIMIT 200`;
-
-    const statusResult = await pool.query(statusQuery, statusParams);
-
+const statusResult = await pool.query(
+  statusQuery,
+  statusParams
+);
     return res.json({
       success: true,
       messages: result.rows,
