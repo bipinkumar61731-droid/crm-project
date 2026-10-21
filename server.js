@@ -163,7 +163,14 @@ const pool = new Pool({
 });
 
 app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
+
+app.use(express.json({
+  verify: function (req, res, buf) {
+    if (req.originalUrl === '/webhook/whatsapp') {
+      req.rawBody = Buffer.from(buf);
+    }
+  }
+}));
 
 app.get('/api/push/public-key', function (req, res) {
   if (!vapidPublicKey) {
@@ -4408,13 +4415,16 @@ ads, WhatsApp Business API and other systems.
 /* WHATSAPP WEBHOOK */
 
 app.get('/webhook/whatsapp', function(req, res) {
-
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
-  const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN || 'crm-whatsapp-verify';
+  const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
 
+  if (!verifyToken) {
+    console.error('WHATSAPP_VERIFY_TOKEN is not configured');
+    return res.sendStatus(503);
+  }
   if (mode === 'subscribe' && token === verifyToken) {
     return res.status(200).send(challenge);
   }
@@ -4422,7 +4432,42 @@ app.get('/webhook/whatsapp', function(req, res) {
   res.sendStatus(403);
 });
 app.post('/webhook/whatsapp', async function(req, res) {
+
   try {
+     const appSecret = process.env.WHATSAPP_APP_SECRET;
+    const signature = req.get('X-Hub-Signature-256');
+
+    if (!appSecret) {
+      console.error('WHATSAPP_APP_SECRET is not configured');
+      return res.sendStatus(503);
+    }
+
+    if (
+      !req.rawBody ||
+      !signature ||
+      !/^sha256=[a-f0-9]{64}$/i.test(signature)
+    ) {
+      return res.sendStatus(401);
+    }
+
+    const expectedSignature =
+      'sha256=' +
+      crypto
+        .createHmac('sha256', appSecret)
+        .update(req.rawBody)
+        .digest('hex');
+
+    const receivedBuffer = Buffer.from(signature, 'utf8');
+    const expectedBuffer = Buffer.from(expectedSignature, 'utf8');
+
+    if (
+      receivedBuffer.length !== expectedBuffer.length ||
+      !crypto.timingSafeEqual(receivedBuffer, expectedBuffer)
+    ) {
+      console.warn('WhatsApp webhook signature verification failed');
+      return res.sendStatus(401);
+    }
+
     console.log('WhatsApp webhook received');
 
     const value = req.body?.entry?.[0]?.changes?.[0]?.value;
