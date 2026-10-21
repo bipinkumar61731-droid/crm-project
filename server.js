@@ -11,6 +11,9 @@ const { spawn } = require('child_process');
 const ffmpegPath = require('ffmpeg-static');
 const webpush = require('web-push');
 require('dotenv').config();
+if (!process.env.SESSION_SECRET || !process.env.SESSION_SECRET.trim()) {
+  throw new Error('SESSION_SECRET is required. Set it in the environment before starting the server.');
+}
 const vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
 const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
 const vapidSubject = process.env.VAPID_SUBJECT;
