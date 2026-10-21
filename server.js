@@ -1527,13 +1527,25 @@ app.post('/login', async function(req, res) {
   }
 });
 
+
 app.get('/logout', function(req, res) {
+  req.session.destroy(function(err) {
+    res.clearCookie('connect.sid', {
+      path: '/',
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production'
+    });
 
-  req.session.destroy(function() {
-    res.redirect('/login');
+    if (err) {
+      console.error('Logout session destruction failed:', err);
+      return res.status(500).send('Logout failed. Please try again.');
+    }
+
+    return res.redirect('/login');
   });
-
 });
+
 
 /* DASHBOARD */
 app.get('/', requireLogin, async function(req, res) {
