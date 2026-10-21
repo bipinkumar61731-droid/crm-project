@@ -1,6 +1,8 @@
 
 const bcrypt = require('bcryptjs');
 const express = require('express');
+const helmet = require('helmet');
+const { rateLimit } = require('express-rate-limit');
 const session = require('express-session');
 const pg = require('pg');
 const crypto = require('crypto');
@@ -66,6 +68,9 @@ async function sendIncomingWhatsAppPush(clientId, phone, message) {
 }
 const { Pool } = pg;
 const app = express();
+app.use(helmet({
+  contentSecurityPolicy: false
+}));
 app.get('/service-worker.js', function (req, res) {
   res.setHeader('Content-Type', 'application/javascript');
   res.setHeader('Service-Worker-Allowed', '/');
@@ -122,7 +127,14 @@ app.get('/service-worker.js', function (req, res) {
   `);
 });
 const PORT = process.env.PORT || 3000;
-
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: 'Too many login attempts. Please try again after 15 minutes.',
+  skipSuccessfulRequests: true
+});
 const whatsappUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -1437,8 +1449,7 @@ ${error}
 `);
 });
 
-app.post('/login', async function(req, res) {
-
+app.post('/login', loginLimiter, async function(req, res) {
    try {
     const username = String(req.body.username || '').trim();
     const password = String(req.body.password || '');
