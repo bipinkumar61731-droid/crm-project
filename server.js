@@ -176,6 +176,7 @@ const pool = new Pool({
     ? { rejectUnauthorized: false }
     : false
 });
+const PgSession = require('connect-pg-simple')(session);
 
 app.use(express.urlencoded({ extended: true }));
 
@@ -262,7 +263,13 @@ async function requireApiKey(req, res, next) {
   }
 }
 app.use(session({
-  secret: process.env.SESSION_SECRET,  resave: false,
+  store: new PgSession({
+    pool: pool,
+    tableName: 'user_sessions',
+    createTableIfMissing: true
+  }),
+  secret: process.env.SESSION_SECRET,
+  resave: false,
   saveUninitialized: false,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
@@ -271,7 +278,6 @@ app.use(session({
     maxAge: 24 * 60 * 60 * 1000
   }
 }));
-
 function esc(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
