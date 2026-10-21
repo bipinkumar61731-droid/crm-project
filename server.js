@@ -213,13 +213,19 @@ async function requireApiKey(req, res, next) {
 
     const validApiKey = process.env.CRM_API_KEY;
 
-    // Global API key: admin-level API access
-    if (validApiKey && apiKey === validApiKey) {
+          // Global API key: admin-level API access
+    if (
+      validApiKey &&
+      apiKey.length === validApiKey.length &&
+      crypto.timingSafeEqual(
+        Buffer.from(apiKey),
+        Buffer.from(validApiKey)
+      )
+    ) {
       req.apiClientId = null;
       req.apiRole = 'admin';
       return next();
     }
-
     // Client-specific API key
     const result = await pool.query(
       `SELECT id, status FROM clients WHERE api_key = $1`,
