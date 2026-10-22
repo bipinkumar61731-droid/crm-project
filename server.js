@@ -402,7 +402,7 @@ function page(title, content, active, role, displayName = '') {
     ['/followups', 'Follow-ups', 'followups'],
     ['/reports', 'Reports', 'reports'],
     ['/api-info', 'API', 'api'],
-    ['/whatsapp', '💬 WhatsApp Chat', 'whatsapp']
+    ['/whatsapp', 'ðŸ’¬ WhatsApp Chat', 'whatsapp']
   ];
 if (role === 'admin') {
   nav.push(['/clients', 'Clients', 'clients']);
@@ -948,7 +948,7 @@ textarea:focus{
 <div class="topbar">
   <h1>${esc(title)}</h1>
   <div class="user-box">
-  ${role === 'admin' ? 'ðŸ’– Vipin_0_6 ðŸ–¤' : 'â˜ ï¸ vipin_B2B âš ï¸'}
+  ${role === 'admin' ? 'Ã°Å¸â€™â€“ Vipin_0_6 Ã°Å¸â€“Â¤' : 'Ã¢ËœÂ Ã¯Â¸ vipin_B2B Ã¢Å¡Â Ã¯Â¸'}
 </div>
 
 <button
@@ -1764,10 +1764,10 @@ const whatsappMessages = whatsappMessagesResult.rows;
           ? `
             <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
               <a href="tel:${esc(lead.phone)}" class="badge source" style="text-decoration:none;">
-                📞 Call
+                ðŸ“ž Call
               </a>
               <a href="https://wa.me/${String(lead.phone).replace(/[^0-9]/g, '')}" target="_blank" class="badge status" style="text-decoration:none;">
-                💬 WhatsApp
+                ðŸ’¬ WhatsApp
               </a>
             </div>
           `
@@ -2195,31 +2195,31 @@ const whatsappMessages = whatsappMessagesResult.rows;
 
       <div class="dash-grid">
 <div class="quick-actions">
-  <h2>⚡ Quick Actions</h2>
+  <h2>âš¡ Quick Actions</h2>
   <div class="action-buttons">
-   <a href="/leads?add=1" class="action-btn">➕ Add Lead</a>   <a href="/customers?add=1" class="action-btn">👤 Add Customer</a>    <a href="/followups" class="action-btn">📅 Follow-ups</a>
-    <a href="/api-info" class="action-btn">🔗 API Info</a>
+   <a href="/leads?add=1" class="action-btn">âž• Add Lead</a>   <a href="/customers?add=1" class="action-btn">ðŸ‘¤ Add Customer</a>    <a href="/followups" class="action-btn">ðŸ“… Follow-ups</a>
+    <a href="/api-info" class="action-btn">ðŸ”— API Info</a>
   </div>
 </div>
 
 <div class="status-box">
-  <h2>📱 WhatsApp & API Status</h2>
+  <h2>ðŸ“± WhatsApp & API Status</h2>
   <div class="status-item">
     <span>WhatsApp Business API</span>
-    <strong>⚪ Not Connected</strong>
+    <strong>âšª Not Connected</strong>
   </div>
   <div class="status-item">
     <span>CRM API</span>
-    <strong>🟢 Running</strong>
+    <strong>ðŸŸ¢ Running</strong>
   </div>
 </div>
 <div class="today-box">
-  <h2>📌 Today's Follow-ups</h2>
+  <h2>ðŸ“Œ Today's Follow-ups</h2>
   <p>Check today's scheduled follow-ups.</p>
 
   <div class="action-buttons">
-    <a href="/followups" class="action-btn">View Follow-ups →</a>
-    <a href="/leads" class="action-btn">View All Leads →</a>
+    <a href="/followups" class="action-btn">View Follow-ups â†’</a>
+    <a href="/leads" class="action-btn">View All Leads â†’</a>
   </div>
 </div>
         <div class="panel">
@@ -2375,8 +2375,8 @@ async function sendWhatsAppMessage(event) {
     'dashboard',
     req.session.user.role,
     req.session.user.role === 'admin'
-      ? '💖 Vipin_0_6 🖤'
-      : '☠️ vipin_B2B ⚠️'
+      ? 'ðŸ’– Vipin_0_6 ðŸ–¤'
+      : 'â˜ ï¸ vipin_B2B âš ï¸'
   )
 );
   } catch (err) {
@@ -4706,25 +4706,27 @@ app.post('/whatsapp/delete-conversation', requireLogin, async function(req, res)
       return res.status(403).send('Access denied.');
     }
 
-    let targetClientId;
+   let targetClientId;
 
-    if (isAdmin) {
-      const postedClientId = String(req.body.client_id || '').trim();
+if (isAdmin) {
+  const postedClientId = String(req.body.client_id || '').trim();
 
-      if (postedClientId === '') {
-        targetClientId = null;
-      } else {
-        targetClientId = Number(postedClientId);
+  // Admin may delete only global WhatsApp conversations.
+  if (postedClientId !== '') {
+    return res.status(403).send(
+      'Admin cannot delete client WhatsApp conversations.'
+    );
+  }
 
-        if (!Number.isSafeInteger(targetClientId) || targetClientId <= 0) {
-          return res.status(400).send('Invalid client ID.');
-        }
-      }
-    } else {
-      // Client session decides ownership; never trust the form's client_id.
-      targetClientId = clientId;
-    }
+  targetClientId = null;
+} else {
+  // Client session decides ownership; never trust the form's client_id.
+  targetClientId = Number(clientId);
 
+  if (!Number.isSafeInteger(targetClientId) || targetClientId <= 0) {
+    return res.status(403).send('Valid client account is required.');
+  }
+}
     db = await pool.connect();
 
     await db.query('BEGIN');
@@ -4784,30 +4786,36 @@ app.get('/whatsapp', requireLogin, async function(req, res) {
 const selectedPhoneNumberId = String(req.query.phone_number_id || '').trim();
 const selectedConversationClientId = String(req.query.client_id || '').trim();
     const isAdmin = req.session.user.role === 'admin';
-    const clientId = req.session.user.client_id;
+   const clientId = req.session.user.client_id;
+
+if (
+  !isAdmin &&
+  (!Number.isSafeInteger(Number(clientId)) || Number(clientId) <= 0)
+) {
+  return res.status(403).send('Valid client account is required');
+}
 if (!isAdmin && !clientId) {
   return res.status(403).send('Access denied');
 }
-    // Mark only this client's incoming messages as read.
+    // Mark messages as read only within the current account's inbox.
     if (selectedPhone) {
-      const readParams = [selectedPhone];
-
-      let readQuery = `
+      const readQuery = `
         UPDATE whatsapp_messages
         SET is_read = true
         WHERE phone = $1
+          AND phone_number_id IS NOT DISTINCT FROM $2
           AND direction = 'incoming'
+          AND client_id IS NOT DISTINCT FROM $3::integer
       `;
 
-      if (!isAdmin) {
-        readParams.push(clientId);
-        readQuery += ` AND client_id = $${readParams.length}`;
-      }
-
-      await pool.query(readQuery, readParams);
+      await pool.query(readQuery, [
+        selectedPhone,
+        selectedPhoneNumberId || null,
+        isAdmin ? null : clientId
+      ]);
     }
 
-            // Build conversation list query with saved WhatsApp contact names.
+    // Build conversations visible to this account only.
     let conversationsQuery = `
       SELECT
         wm.phone,
@@ -4818,7 +4826,7 @@ if (!isAdmin && !clientId) {
         COUNT(*)::int AS message_count,
         COUNT(*) FILTER (
           WHERE wm.direction = 'incoming'
-          AND wm.is_read = false
+            AND wm.is_read = false
         )::int AS unread_count,
         COALESCE(
           (
@@ -4842,25 +4850,17 @@ if (!isAdmin && !clientId) {
           wm.phone
         ) AS contact_name
       FROM whatsapp_messages wm
+      WHERE wm.client_id IS NOT DISTINCT FROM $1::integer
     `;
-    const params = [];
-    const filters = [];
 
-    if (!isAdmin) {
-      params.push(clientId);
-      filters.push(`wm.client_id = $${params.length}`);
-    }
+    const params = [isAdmin ? null : clientId];
 
     if (search) {
       params.push('%' + search + '%');
-      filters.push(`wm.phone ILIKE $${params.length}`);
+      conversationsQuery += ` AND wm.phone ILIKE $${params.length}`;
     }
 
-    if (filters.length) {
-      conversationsQuery += ` WHERE ${filters.join(' AND ')}`;
-    }
-
-        conversationsQuery += `
+    conversationsQuery += `
       GROUP BY wm.phone, wm.phone_number_id, wm.client_id
       ORDER BY last_id DESC
     `;
@@ -4869,78 +4869,69 @@ if (!isAdmin && !clientId) {
       conversationsQuery,
       params
     );
-        // Show the chat list when the user explicitly returns to Chats.
-const showConversationList = req.query.view === 'chats';
 
-let phone = '';
-let phoneNumberId = '';
-let conversationClientId = null;
-let selectedChat = null;
+    // Admin sees global chats only; clients see their own chats only.
+    const showConversationList = req.query.view === 'chats';
 
-if (!showConversationList) {
-  selectedChat = conversationsResult.rows.find(chat => {
-    if (
-      chat.phone !== selectedPhone ||
-      chat.phone_number_id !== selectedPhoneNumberId
-    ) {
-      return false;
+    let phone = '';
+    let phoneNumberId = '';
+    let conversationClientId = null;
+    let selectedChat = null;
+
+    if (!showConversationList) {
+      selectedChat = conversationsResult.rows.find(chat => {
+        return (
+          chat.phone === selectedPhone &&
+          chat.phone_number_id === selectedPhoneNumberId &&
+          (
+            isAdmin
+              ? chat.client_id == null
+              : Number(chat.client_id) === Number(clientId)
+          )
+        );
+      });
+
+      if (!selectedChat && conversationsResult.rows.length > 0) {
+        selectedChat = conversationsResult.rows[0];
+      }
+
+      if (selectedChat) {
+        phone = selectedChat.phone;
+        phoneNumberId = selectedChat.phone_number_id;
+        conversationClientId = selectedChat.client_id;
+      }
     }
 
-    if (!isAdmin) {
-      return Number(chat.client_id) === Number(clientId);
-    }
-
-    if (selectedConversationClientId === 'global') {
-      return chat.client_id == null;
-    }
-
-    return String(chat.client_id) === selectedConversationClientId;
-  });
-
-  if (!selectedChat && conversationsResult.rows.length > 0) {
-    selectedChat = conversationsResult.rows[0];
-  }
-
-  if (selectedChat) {
-    phone = selectedChat.phone;
-    phoneNumberId = selectedChat.phone_number_id;
-    conversationClientId = selectedChat.client_id;
-  }
-} 
-       // Load messages with the same client restriction.
+    // Load messages only for the selected account-owned conversation.
     let messages = [];
 
     if (phone) {
-      const messageParams = [
-  phone,
-  phoneNumberId,
-  conversationClientId
-];
+      const messageQuery = `
+        SELECT
+          id,
+          phone,
+          message,
+          direction,
+          created_at,
+          media_type,
+          media_id,
+          media_mime_type,
+          delivery_status
+        FROM whatsapp_messages
+        WHERE phone = $1
+          AND phone_number_id IS NOT DISTINCT FROM $2
+          AND client_id IS NOT DISTINCT FROM $3::integer
+        ORDER BY id ASC
+      `;
 
-let messageQuery = `
-  SELECT
-    id,
-    phone,
-    message,
-    direction,
-    created_at,
-    media_type,
-    media_id,
-    media_mime_type,
-    delivery_status
-  FROM whatsapp_messages
-  WHERE phone = $1
-    AND phone_number_id IS NOT DISTINCT FROM $2
-    AND client_id IS NOT DISTINCT FROM $3::integer
-  ORDER BY id ASC
-`;
+      const messageResult = await pool.query(messageQuery, [
+        phone,
+        phoneNumberId || null,
+        isAdmin ? null : clientId
+      ]);
 
-const messageResult = await pool.query(
-  messageQuery,
-  messageParams
-);
-
-messages = messageResult.rows;    }
+      messages = messageResult.rows;
+    }
 
     // Conversation list HTML
     const conversationRows =
@@ -5043,7 +5034,7 @@ messages = messageResult.rows;    }
               font-size:12px;
             "
           >
-            🗑️ Delete conversation
+            ðŸ—‘ï¸ Delete conversation
           </button>
 
         </form>
@@ -5421,8 +5412,8 @@ messages = messageResult.rows;    }
          <div class="wa-header">
   ${
     phone
-      ? `<a class="wa-back" href="/whatsapp?view=chats" aria-label="Back to conversations">← Chats</a> <span>💬 WhatsApp — ${esc(phone)}</span>`
-      : '💬 WhatsApp Inbox'
+      ? `<a class="wa-back" href="/whatsapp?view=chats" aria-label="Back to conversations">â† Chats</a> <span>ðŸ’¬ WhatsApp â€” ${esc(phone)}</span>`
+      : 'ðŸ’¬ WhatsApp Inbox'
   }
 </div>
 
@@ -5486,7 +5477,7 @@ messages = messageResult.rows;    }
         type="button"
         onclick="startWhatsAppRecording()"
       >
-        🎙️ Record Audio
+        ðŸŽ™ï¸ Record Audio
       </button>
 
       <button
@@ -5496,7 +5487,7 @@ messages = messageResult.rows;    }
         onclick="stopWhatsAppRecording()"
         disabled
       >
-        ⏹️ Stop
+        â¹ï¸ Stop
       </button>
 
       <button
@@ -5792,7 +5783,7 @@ const mimeType = types.find(type =>
     document.getElementById('waRecordBtn').disabled = true;
     document.getElementById('waStopRecordBtn').disabled = false;
     document.getElementById('waRecordingStatus').textContent =
-      '🔴 Recording chal rahi hai...';
+      'ðŸ”´ Recording chal rahi hai...';
 
   } catch (error) {
     console.error('Audio recording error:', error);
@@ -5967,25 +5958,20 @@ if (
   });
 }
 
+
 const isAdmin = req.session.user.role === 'admin';
 let conversationClientId;
 
 if (isAdmin) {
-  if (requestedClientId === 'global') {
-    conversationClientId = null;
-  } else {
-    conversationClientId = Number(requestedClientId);
-
-    if (
-      !Number.isSafeInteger(conversationClientId) ||
-      conversationClientId <= 0
-    ) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid conversation client ID'
-      });
-    }
+  // Admin may access only the global WhatsApp inbox.
+  if (requestedClientId !== 'global') {
+    return res.status(403).json({
+      success: false,
+      error: 'Admin cannot access client WhatsApp conversations'
+    });
   }
+
+  conversationClientId = null;
 } else {
   conversationClientId = Number(req.session.user.client_id);
 
@@ -6418,11 +6404,12 @@ app.get('/whatsapp/media/:mediaId', requireLogin, async function(req, res) {
 
     if (isAdmin) {
       result = await pool.query(
-        `SELECT media_id, media_mime_type, phone_number_id, client_id
-         FROM whatsapp_messages
-         WHERE media_id = $1
-         LIMIT 1`,
-        [mediaId]
+       `SELECT media_id, media_mime_type, phone_number_id, client_id
+ FROM whatsapp_messages
+ WHERE media_id = $1
+   AND client_id IS NULL
+ LIMIT 1`,
+[mediaId]
       );
     } else {
       result = await pool.query(
