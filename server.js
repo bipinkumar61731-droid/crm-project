@@ -172,7 +172,7 @@ if (!process.env.DATABASE_URL) {
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL
+  ssl: process.env.NODE_ENV === 'production'
     ? { rejectUnauthorized: false }
     : false
 });
@@ -1150,6 +1150,17 @@ await pool.query(`
 
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS customers (
+      id SERIAL PRIMARY KEY,
+      client_id INTEGER,
+      name VARCHAR(150) NOT NULL,
+      phone VARCHAR(50),
+      email VARCHAR(150),
+      address TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+await pool.query(`
     ALTER TABLE customers
     ADD COLUMN IF NOT EXISTS phone VARCHAR(50)
   `);
@@ -1161,17 +1172,7 @@ await pool.query(`
     ALTER TABLE customers
     ADD COLUMN IF NOT EXISTS address TEXT
   `);
-await pool.query(`
-    CREATE TABLE IF NOT EXISTS customers (
-      id SERIAL PRIMARY KEY,
-      client_id INTEGER,
-      name VARCHAR(150) NOT NULL,
-      phone VARCHAR(50),
-      email VARCHAR(150),
-      address TEXT,
-      created_at TIMESTAMP DEFAULT NOW()
-    )
-  `);
+
 await pool.query(`
   ALTER TABLE customers
   ADD COLUMN IF NOT EXISTS client_id INTEGER
