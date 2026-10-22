@@ -4521,45 +4521,6 @@ if (!phoneNumberId) {
   console.warn('Webhook missing phone_number_id');
   return res.sendStatus(200);
 }
-    // Track WhatsApp outgoing message delivery statuses.
-    const statuses = value.statuses || [];
-
-    for (const status of statuses) {
-      const whatsappMessageId = status.id || '';
-      const deliveryStatus = status.status || '';
-
-      if (!whatsappMessageId || !deliveryStatus) continue;
-
-      const errorDetails = Array.isArray(status.errors)
-        ? JSON.stringify(status.errors)
-        : null;
-
-      await pool.query(
-        `UPDATE whatsapp_messages
-         SET delivery_status = $1,
-             delivery_error = $2,
-             status_updated_at = NOW()
-         WHERE whatsapp_message_id = $3
-  AND phone_number_id = $4`,
-        [
-  deliveryStatus,
-  errorDetails,
-  whatsappMessageId,
-  phoneNumberId
-]
-      );
-
-      console.log('WhatsApp delivery status updated', {
-  whatsappMessageId,
-  deliveryStatus,
-  errorDetails
-});
-    }
-
-       if (!phoneNumberId) {
-      console.warn('Webhook missing phone_number_id');
-      return res.sendStatus(200);
-    }
 
     // Identify which client owns this WhatsApp number.
     const settingsResult = await pool.query(
@@ -4583,6 +4544,41 @@ if (!phoneNumberId) {
       return res.sendStatus(200);
     }
 
+    // Update delivery statuses only after identifying the number owner.
+    const statuses = value.statuses || [];
+
+    for (const status of statuses) {
+      const whatsappMessageId = status.id || '';
+      const deliveryStatus = status.status || '';
+
+      if (!whatsappMessageId || !deliveryStatus) continue;
+
+      const errorDetails = Array.isArray(status.errors)
+        ? JSON.stringify(status.errors)
+        : null;
+
+      await pool.query(
+        `UPDATE whatsapp_messages
+         SET delivery_status = $1,
+             delivery_error = $2,
+             status_updated_at = NOW()
+         WHERE whatsapp_message_id = $3
+           AND phone_number_id = $4
+           AND client_id IS NOT DISTINCT FROM $5::integer`,
+        [
+          deliveryStatus,
+          errorDetails,
+          whatsappMessageId,
+          phoneNumberId,
+          clientId
+        ]
+      );
+
+      console.log('WhatsApp delivery status updated', {
+        whatsappMessageId,
+        deliveryStatus
+      });
+    }
     for (const msg of messages) {
 
       const phone = msg.from || '';
