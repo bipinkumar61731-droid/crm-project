@@ -4692,6 +4692,54 @@ RETURNING id`,
       }
 
       await sendIncomingWhatsAppPush(clientId, phone, message);
+      // Automatically create leads only for Click-to-WhatsApp ad referrals.
+      const referral = msg.referral || null;
+
+      if (
+        referral &&
+        String(referral.source_type || '').toLowerCase() === 'ad'
+      ) {
+        const existingLead = await pool.query(
+          `SELECT id
+           FROM leads
+           WHERE phone = $1
+             AND client_id IS NOT DISTINCT FROM $2::integer
+           LIMIT 1`,
+          [phone, clientId]
+        );
+
+        if (existingLead.rows.length === 0) {
+          const referralNotes = `WhatsApp ad referral: ${JSON.stringify({
+            source_type: referral.source_type || null,
+            source_id: referral.source_id || null,
+            headline: referral.headline || null,
+            body: referral.body || null,
+            source_url: referral.source_url || null,
+            ctwa_clid: referral.ctwa_clid || null
+          })}`;
+
+          await pool.query(
+            `INSERT INTO leads
+             (client_id, name, phone, email, source, status, notes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [
+              clientId,
+              contactName || phone,
+              phone,
+              '',
+              'WhatsApp',
+              'New',
+              referralNotes
+            ]
+          );
+
+          console.log('Automatic WhatsApp ad lead created', {
+            clientId,
+            phone,
+            sourceType: referral.source_type
+          });
+        }
+      }
       console.log('Incoming WhatsApp message saved', {
         clientId,
         phone,
