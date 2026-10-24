@@ -1274,10 +1274,23 @@ await pool.query(`
       created_at TIMESTAMP DEFAULT NOW()
     )
   `);
-
+await pool.query(`
+  ALTER TABLE whatsapp_messages
+  ADD COLUMN IF NOT EXISTS client_id INTEGER
+`);
 await pool.query(`
   ALTER TABLE whatsapp_messages
   ADD COLUMN IF NOT EXISTS phone_number_id VARCHAR(100)
+`);
+await pool.query(`
+  CREATE UNIQUE INDEX IF NOT EXISTS whatsapp_messages_incoming_unique
+  ON whatsapp_messages (
+    client_id,
+    phone_number_id,
+    whatsapp_message_id
+  ) NULLS NOT DISTINCT
+  WHERE direction = 'incoming'
+    AND whatsapp_message_id IS NOT NULL
 `);
 
 await pool.query(`
@@ -4644,12 +4657,18 @@ console.log('WhatsApp contact profile:', {
         message = `[${msg.type || 'unknown'} message]`;
       }
 
-      await pool.query(
+           const insertResult = await pool.query(
         `INSERT INTO whatsapp_messages
           (client_id, phone_number_id, phone, message,
            direction, whatsapp_message_id, media_type,
            media_id, media_mime_type)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+         SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9
+WHERE TRUE
+        ON CONFLICT (client_id, phone_number_id, whatsapp_message_id)
+  WHERE direction = 'incoming'
+    AND whatsapp_message_id IS NOT NULL
+  DO NOTHING
+RETURNING id`,
         [
           clientId,
           phoneNumberId,
@@ -4663,13 +4682,22 @@ console.log('WhatsApp contact profile:', {
         ]
       );
 
+      if (insertResult.rows.length === 0) {
+        console.log('Duplicate WhatsApp message skipped', {
+          clientId,
+          phone,
+          whatsappMessageId
+        });
+        continue;
+      }
+
       await sendIncomingWhatsAppPush(clientId, phone, message);
       console.log('Incoming WhatsApp message saved', {
         clientId,
-        phone
+        phone,
+        whatsappMessageId
       });
-    }
-
+}
     res.sendStatus(200);
 
   } catch (err) {
