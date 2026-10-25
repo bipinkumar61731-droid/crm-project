@@ -4030,8 +4030,8 @@ app.get('/clients', requireAdmin, async function(req, res) {
          </td>
 
          <td>
-  <a href="/clients/${client.id}/edit">Edit</a>
-
+<a href="/clients/${client.id}/edit">Edit Client</a>
+<a href="/clients/${client.id}/auto-reply">Edit Website / Auto Reply</a>
   <form method="POST" action="/clients/${client.id}/status" style="display:inline;">
     <input type="hidden" name="status" value="${
       client.status === 'active' ? 'inactive' : 'active'
@@ -4305,6 +4305,99 @@ app.get('/clients/:id/edit', requireAdmin, async function(req, res) {
   } catch (err) {
     console.error('Client edit page error:', err);
     res.status(500).send('Unable to load client edit page');
+  }
+});
+
+app.get('/clients/:id/auto-reply', requireAdmin, async function(req, res) {
+  try {
+    const id = Number(req.params.id);
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).send('Invalid client ID');
+    }
+
+    const result = await pool.query(
+      `SELECT id, name, website_url, whatsapp_auto_reply_message
+       FROM clients
+       WHERE id = $1`,
+      [id]
+    );
+
+    if (!result.rows[0]) {
+      return res.status(404).send('Client not found');
+    }
+
+    const client = result.rows[0];
+
+    const content = `
+      <div class="card">
+        <h2>Website / WhatsApp Auto Reply</h2>
+        <p>Client: ${esc(client.name)}</p>
+
+        <form method="POST" action="/clients/${client.id}/auto-reply">
+          <label>Website URL</label>
+          <input
+            type="url"
+            name="website_url"
+            value="${esc(client.website_url || '')}"
+            placeholder="https://example.com"
+          >
+
+          <label>WhatsApp Automatic Reply Message</label>
+          <textarea
+            name="whatsapp_auto_reply_message"
+            rows="5"
+            placeholder="Customer ko bheja jane wala automatic reply"
+          >${esc(client.whatsapp_auto_reply_message || '')}</textarea>
+
+          <button type="submit">Save Website / Auto Reply</button>
+          <a href="/clients">Cancel</a>
+        </form>
+      </div>
+    `;
+
+    res.send(page(
+      'Website / Auto Reply',
+      content,
+      'clients',
+      req.session.user.username
+    ));
+  } catch (err) {
+    console.error('Client auto-reply page error:', err);
+    res.status(500).send('Unable to load Website / Auto Reply page');
+  }
+});
+
+app.post('/clients/:id/auto-reply', requireAdmin, async function(req, res) {
+  try {
+    const id = Number(req.params.id);
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).send('Invalid client ID');
+    }
+
+    const websiteUrl = String(req.body.website_url || '').trim();
+    const autoReplyMessage = String(
+      req.body.whatsapp_auto_reply_message || ''
+    ).trim();
+
+    const result = await pool.query(
+      `UPDATE clients
+       SET website_url = $1,
+           whatsapp_auto_reply_message = $2
+       WHERE id = $3
+       RETURNING id`,
+      [websiteUrl || null, autoReplyMessage || null, id]
+    );
+
+    if (!result.rows[0]) {
+      return res.status(404).send('Client not found');
+    }
+
+    res.redirect(`/clients/${id}/auto-reply`);
+  } catch (err) {
+    console.error('Client auto-reply save error:', err);
+    res.status(500).send('Unable to save Website / Auto Reply settings');
   }
 });
 
