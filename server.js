@@ -1117,6 +1117,15 @@ await pool.query(`
   ALTER TABLE clients
   ADD COLUMN IF NOT EXISTS api_key VARCHAR(255)
 `);
+await pool.query(`
+  ALTER TABLE clients
+  ADD COLUMN IF NOT EXISTS website_url TEXT
+`);
+
+await pool.query(`
+  ALTER TABLE clients
+  ADD COLUMN IF NOT EXISTS whatsapp_auto_reply_message TEXT
+`);
 const clientsWithoutApiKey = await pool.query(
   `SELECT id FROM clients WHERE api_key IS NULL`
 );
@@ -4228,7 +4237,7 @@ app.get('/clients/:id/edit', requireAdmin, async function(req, res) {
     }
 
     const result = await pool.query(
-      'SELECT id, name, email, phone FROM clients WHERE id=$1',
+      'SELECT id, name, email, phone, website_url, whatsapp_auto_reply_message FROM clients WHERE id=$1',
       [id]
     );
 
@@ -4251,6 +4260,20 @@ app.get('/clients/:id/edit', requireAdmin, async function(req, res) {
 
           <label>Phone</label>
           <input name="phone" value="${esc(client.phone || '')}">
+          <label>Website URL</label>
+          <input
+            type="url"
+            name="website_url"
+            value="${esc(client.website_url || '')}"
+            placeholder="https://example.com"
+          >
+
+          <label>WhatsApp Automatic Reply Message</label>
+          <textarea
+            name="whatsapp_auto_reply_message"
+            rows="4"
+            placeholder="Customer ko bheja jane wala automatic reply"
+          >${esc(client.whatsapp_auto_reply_message || '')}</textarea>
 <label>WhatsApp Phone Number ID</label>
 <input
   name="wa_phone_number_id"
@@ -4314,14 +4337,32 @@ app.post('/clients/:id/edit', requireAdmin, async function(req, res) {
 
     await db.query('BEGIN');
 
+        const websiteUrl = String(
+      req.body.website_url || ''
+    ).trim();
+
+    const autoReplyMessage = String(
+      req.body.whatsapp_auto_reply_message || ''
+    ).trim();
+
     const result = await db.query(
       `UPDATE clients
-       SET name = $1, email = $2, phone = $3
-       WHERE id = $4
+       SET name = $1,
+           email = $2,
+           phone = $3,
+           website_url = $4,
+           whatsapp_auto_reply_message = $5
+       WHERE id = $6
        RETURNING id`,
-      [name, email || null, phone || null, id]
+      [
+        name,
+        email || null,
+        phone || null,
+        websiteUrl || null,
+        autoReplyMessage || null,
+        id
+      ]
     );
-
     if (!result.rows[0]) {
       await db.query('ROLLBACK');
       return res.status(404).send('Client not found');
@@ -4740,7 +4781,97 @@ RETURNING id`,
           });
         }
       }
+        // Send an automatic reply only for a new Click-to-WhatsApp ad message.
+        // Use only the WhatsApp credentials assigned to this client and number.
+        if (clientId !== null && clientId !== undefined) {
+          try {
+            const autoReplyResult = await pool.query(
+              `SELECT c.website_url,
+                      c.whatsapp_auto_reply_message,
+                      w.access_token,
+                      w.phone_number_id
+               FROM clients c
+               JOIN client_whatsapp_settings w
+                 ON w.client_id = c.id
+               WHERE c.id = $1
+                 AND w.phone_number_id = $2
+                 AND w.is_active = TRUE
+               LIMIT 1`,
+              [clientId, phoneNumberId]
+            );
+
+            const autoReplySettings = autoReplyResult.rows[0];
+
+            if (
+              autoReplySettings &&
+              autoReplySettings.access_token &&
+              autoReplySettings.phone_number_id &&
+              autoReplySettings.whatsapp_auto_reply_message
+            ) {
+              const replyParts = [
+                autoReplySettings.whatsapp_auto_reply_message.trim(),
+                autoReplySettings.website_url
+                  ? `Website: ${autoReplySettings.website_url.trim()}`
+                  : ''
+              ].filter(Boolean);
+
+              const autoReplyText = replyParts.join('\n\n');
+
+              if (autoReplyText) {
+                const autoReplyResponse = await fetch(
+                  `https://graph.facebook.com/v23.0/${autoReplySettings.phone_number_id}/messages`,
+                  {
+                    method: 'POST',
+                    headers: {
+                      Authorization:
+                        `Bearer ${autoReplySettings.access_token}`,
+                      'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                      messaging_product: 'whatsapp',
+                      to: phone,
+                      type: 'text',
+                      text: { body: autoReplyText }
+                    })
+                  }
+                );
+
+                const autoReplyData = await autoReplyResponse.json();
+
+                if (!autoReplyResponse.ok) {
+                  throw new Error(
+                    JSON.stringify(autoReplyData.error || autoReplyData)
+                  );
+                }
+
+                await pool.query(
+                  `INSERT INTO whatsapp_messages
+                   (client_id, phone_number_id, phone, message,
+                    direction, whatsapp_message_id, delivery_status)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                  [
+                    clientId,
+                    autoReplySettings.phone_number_id,
+                    phone,
+                    autoReplyText,
+                    'outgoing',
+                    autoReplyData.messages?.[0]?.id || null,
+                    'accepted'
+                  ]
+                );
+
+                console.log('WhatsApp ad auto-reply accepted', {
+                  clientId,
+                  phone
+                });
+              }
+            }
+          } catch (autoReplyError) {
+            console.error('WhatsApp ad auto-reply failed:', autoReplyError);
+          }
+        }
       console.log('Incoming WhatsApp message saved', {
+
         clientId,
         phone,
         whatsappMessageId
