@@ -402,7 +402,7 @@ function page(title, content, active, role, displayName = '') {
     ['/followups', 'Follow-ups', 'followups'],
     ['/reports', 'Reports', 'reports'],
     ['/api-info', 'API', 'api'],
-    ['/whatsapp', 'ðŸ’¬ WhatsApp Chat', 'whatsapp']
+    ['/whatsapp', 'WhatsApp Chat', 'whatsapp']
   ];
 if (role === 'admin') {
   nav.push(['/clients', 'Clients', 'clients']);
@@ -5382,7 +5382,7 @@ if (!isAdmin && !clientId) {
               font-size:12px;
             "
           >
-            ðŸ—‘ï¸ Delete conversation
+            Delete conversation
           </button>
 
         </form>
@@ -5760,8 +5760,8 @@ if (!isAdmin && !clientId) {
          <div class="wa-header">
   ${
     phone
-      ? `<a class="wa-back" href="/whatsapp?view=chats" aria-label="Back to conversations">â† Chats</a> <span>ðŸ’¬ WhatsApp â€” ${esc(phone)}</span>`
-      : 'ðŸ’¬ WhatsApp Inbox'
+      ? `<a class="wa-back" href="/whatsapp?view=chats" aria-label="Back to conversations">Chats</a> <span>WhatsApp - ${esc(phone)}</span>`
+      : 'WhatsApp Inbox'
   }
 </div>
 
@@ -5825,7 +5825,7 @@ if (!isAdmin && !clientId) {
         type="button"
         onclick="startWhatsAppRecording()"
       >
-        ðŸŽ™ï¸ Record Audio
+        Record Audio
       </button>
 
       <button
@@ -6131,7 +6131,7 @@ const mimeType = types.find(type =>
     document.getElementById('waRecordBtn').disabled = true;
     document.getElementById('waStopRecordBtn').disabled = false;
     document.getElementById('waRecordingStatus').textContent =
-      'ðŸ”´ Recording chal rahi hai...';
+      'Recording...';
 
   } catch (error) {
     console.error('Audio recording error:', error);
