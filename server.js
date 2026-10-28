@@ -1606,6 +1606,83 @@ app.get('/logout', function(req, res) {
 });
 
 
+/* ANDROID DASHBOARD API */
+app.get('/api/mobile/dashboard', async function(req, res) {
+  try {
+    const user = req.session && req.session.user;
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Please login again'
+      });
+    }
+
+    const isAdmin = user.role === 'admin';
+    const clientId = user.client_id;
+
+    const [customersResult, leadsResult, pendingResult, recentLeadsResult] =
+      await Promise.all([
+        pool.query(
+          isAdmin
+            ? 'SELECT COUNT(*)::int AS count FROM customers'
+            : 'SELECT COUNT(*)::int AS count FROM customers WHERE client_id=$1',
+          isAdmin ? [] : [clientId]
+        ),
+
+        pool.query(
+          isAdmin
+            ? 'SELECT COUNT(*)::int AS count FROM leads'
+            : 'SELECT COUNT(*)::int AS count FROM leads WHERE client_id=$1',
+          isAdmin ? [] : [clientId]
+        ),
+
+        pool.query(
+          isAdmin
+            ? `SELECT COUNT(*)::int AS count
+               FROM leads
+               WHERE follow_up IS NOT NULL
+               AND follow_up >= CURRENT_DATE`
+            : `SELECT COUNT(*)::int AS count
+               FROM leads
+               WHERE follow_up IS NOT NULL
+               AND follow_up >= CURRENT_DATE
+               AND client_id=$1`,
+          isAdmin ? [] : [clientId]
+        ),
+
+        pool.query(
+          isAdmin
+            ? `SELECT id, name, phone, source, status, follow_up
+               FROM leads
+               ORDER BY id DESC
+               LIMIT 10`
+            : `SELECT id, name, phone, source, status, follow_up
+               FROM leads
+               WHERE client_id=$1
+               ORDER BY id DESC
+               LIMIT 10`,
+          isAdmin ? [] : [clientId]
+        )
+      ]);
+
+    return res.json({
+      success: true,
+      customers: customersResult.rows[0].count,
+      leads: leadsResult.rows[0].count,
+      pendingFollowups: pendingResult.rows[0].count,
+      recentLeads: recentLeadsResult.rows
+    });
+  } catch (err) {
+    console.error('Mobile dashboard API error:', err);
+
+    return res.status(500).json({
+      success: false,
+      error: 'Could not load dashboard'
+    });
+  }
+});
+
 /* DASHBOARD */
 app.get('/', requireLogin, async function(req, res) {
   try {
