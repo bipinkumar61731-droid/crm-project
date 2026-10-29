@@ -1682,6 +1682,109 @@ app.get('/api/mobile/dashboard', async function(req, res) {
     });
   }
 });
+/* ANDROID WHATSAPP CONVERSATIONS API */
+app.get('/api/mobile/whatsapp/conversations', async function(req, res) {
+  try {
+    const user = req.session && req.session.user;
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Please login again'
+      });
+    }
+
+    const isAdmin = user.role === 'admin';
+    const clientId = user.client_id;
+    const search = String(req.query.search || '').trim();
+
+    if (
+      !isAdmin &&
+      (!Number.isSafeInteger(Number(clientId)) || Number(clientId) <= 0)
+    ) {
+      return res.status(403).json({
+        success: false,
+        error: 'Valid client account is required'
+      });
+    }
+
+    const params = [isAdmin ? null : Number(clientId)];
+
+    let query = `
+      SELECT
+        wm.phone,
+        wm.phone_number_id,
+        wm.client_id,
+        MAX(wm.id) AS last_id,
+        MAX(wm.created_at) AS last_time,
+        COUNT(*)::int AS message_count,
+        COUNT(*) FILTER (
+          WHERE wm.direction = 'incoming'
+            AND wm.is_read = false
+        )::int AS unread_count,
+        COALESCE(
+          (
+            SELECT wc.name
+            FROM whatsapp_contacts wc
+            WHERE wc.phone = wm.phone
+              AND wc.phone_number_id = wm.phone_number_id
+              AND wc.client_id IS NOT DISTINCT FROM wm.client_id
+            ORDER BY wc.updated_at DESC
+            LIMIT 1
+          ),
+          (
+            SELECT c.name
+            FROM customers c
+            WHERE regexp_replace(COALESCE(c.phone, ''), '[^0-9]', '', 'g')
+                = regexp_replace(wm.phone, '[^0-9]', '', 'g')
+              AND c.client_id IS NOT DISTINCT FROM wm.client_id
+            ORDER BY c.id DESC
+            LIMIT 1
+          ),
+          wm.phone
+        ) AS contact_name
+      FROM whatsapp_messages wm
+      WHERE wm.client_id IS NOT DISTINCT FROM $1::integer
+    `;
+
+    if (search) {
+      params.push('%' + search + '%');
+      query += `
+        AND (
+          wm.phone ILIKE $${params.length}
+          OR EXISTS (
+            SELECT 1
+            FROM whatsapp_contacts wc
+            WHERE wc.phone = wm.phone
+              AND wc.phone_number_id = wm.phone_number_id
+              AND wc.client_id IS NOT DISTINCT FROM wm.client_id
+              AND wc.name ILIKE $${params.length}
+          )
+        )
+      `;
+    }
+
+    query += `
+      GROUP BY wm.phone, wm.phone_number_id, wm.client_id
+      ORDER BY MAX(wm.id) DESC
+      LIMIT 200
+    `;
+
+    const result = await pool.query(query, params);
+
+    return res.json({
+      success: true,
+      conversations: result.rows
+    });
+  } catch (err) {
+    console.error('Mobile WhatsApp conversations error:', err);
+
+    return res.status(500).json({
+      success: false,
+      error: 'Could not load WhatsApp conversations'
+    });
+  }
+});
 
 /* DASHBOARD */
 app.get('/', requireLogin, async function(req, res) {
