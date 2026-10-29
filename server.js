@@ -1785,7 +1785,310 @@ app.get('/api/mobile/whatsapp/conversations', async function(req, res) {
     });
   }
 });
+/* ANDROID WHATSAPP DELETE APIs */
 
+app.post('/api/mobile/whatsapp/delete-conversation', async function(req, res) {
+  let db;
+
+  try {
+    const user = req.session && req.session.user;
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Please login again'
+      });
+    }
+
+    const isAdmin = user.role === 'admin';
+    let targetClientId = null;
+
+    if (!isAdmin) {
+      const clientId = Number(user.client_id);
+
+      if (!Number.isSafeInteger(clientId) || clientId <= 0) {
+        return res.status(403).json({
+          success: false,
+          error: 'Valid client account is required'
+        });
+      }
+
+      targetClientId = clientId;
+    }
+
+    const phone = String(req.body.phone || '').trim();
+    const phoneNumberId =
+      String(req.body.phone_number_id || '').trim() || null;
+
+    if (!phone) {
+      return res.status(400).json({
+        success: false,
+        error: 'Phone number is required'
+      });
+    }
+
+    db = await pool.connect();
+    await db.query('BEGIN');
+
+    const result = await db.query(
+      `DELETE FROM whatsapp_messages
+       WHERE phone = $1
+         AND phone_number_id IS NOT DISTINCT FROM $2
+         AND client_id IS NOT DISTINCT FROM $3::integer`,
+      [phone, phoneNumberId, targetClientId]
+    );
+
+    await db.query(
+      `DELETE FROM whatsapp_contacts
+       WHERE phone = $1
+         AND phone_number_id IS NOT DISTINCT FROM $2
+         AND client_id IS NOT DISTINCT FROM $3::integer`,
+      [phone, phoneNumberId, targetClientId]
+    );
+
+    await db.query('COMMIT');
+
+    return res.json({
+      success: true,
+      deletedMessages: result.rowCount
+    });
+  } catch (err) {
+    if (db) {
+      try {
+        await db.query('ROLLBACK');
+      } catch (rollbackError) {
+        console.error('Mobile WhatsApp delete rollback error:', rollbackError);
+      }
+    }
+
+    console.error('Mobile WhatsApp delete error:', err);
+
+    return res.status(500).json({
+      success: false,
+      error: 'Could not delete conversation'
+    });
+  } finally {
+    if (db) {
+      db.release();
+    }
+  }
+});
+
+app.post('/api/mobile/whatsapp/delete-all-conversations', async function(req, res) {
+  let db;
+
+  try {
+    const user = req.session && req.session.user;
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Please login again'
+      });
+    }
+
+    const isAdmin = user.role === 'admin';
+    let targetClientId = null;
+
+    if (!isAdmin) {
+      const clientId = Number(user.client_id);
+
+      if (!Number.isSafeInteger(clientId) || clientId <= 0) {
+        return res.status(403).json({
+          success: false,
+          error: 'Valid client account is required'
+        });
+      }
+
+      targetClientId = clientId;
+    }
+
+    db = await pool.connect();
+    await db.query('BEGIN');
+
+    const result = await db.query(
+      `DELETE FROM whatsapp_messages
+       WHERE client_id IS NOT DISTINCT FROM $1::integer`,
+      [targetClientId]
+    );
+
+    await db.query(
+      `DELETE FROM whatsapp_contacts
+       WHERE client_id IS NOT DISTINCT FROM $1::integer`,
+      [targetClientId]
+    );
+
+    await db.query('COMMIT');
+
+    return res.json({
+      success: true,
+      deletedMessages: result.rowCount
+    });
+  } catch (err) {
+    if (db) {
+      try {
+        await db.query('ROLLBACK');
+      } catch (rollbackError) {
+        console.error('Mobile WhatsApp delete-all rollback error:', rollbackError);
+      }
+    }
+
+    console.error('Mobile WhatsApp delete-all error:', err);
+
+    return res.status(500).json({
+      success: false,
+      error: 'Could not delete conversations'
+    });
+  } finally {
+    if (db) {
+      db.release();
+    }
+  }
+});
+/* ANDROID WHATSAPP BLOCK USER */
+
+app.post('/api/mobile/whatsapp/block-user', async function(req, res) {
+  try {
+    const user = req.session && req.session.user;
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Please login again'
+      });
+    }
+
+    const phone = String(req.body.phone || '').trim();
+    const requestedPhoneNumberId =
+      String(req.body.phone_number_id || '').trim();
+
+    const phoneDigits = phone.replace(/\D/g, '');
+
+    if (
+      !/^\d{8,15}$/.test(phoneDigits) ||
+      !requestedPhoneNumberId
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid phone number and WhatsApp number ID are required'
+      });
+    }
+
+    const isAdmin = user.role === 'admin';
+    let token;
+    let phoneNumberId;
+
+    if (isAdmin) {
+      token = process.env.WHATSAPP_ACCESS_TOKEN;
+      phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+
+      if (phoneNumberId !== requestedPhoneNumberId) {
+        return res.status(403).json({
+          success: false,
+          error: 'WhatsApp number does not match this account'
+        });
+      }
+    } else {
+      const clientId = Number(user.client_id);
+
+      if (!Number.isSafeInteger(clientId) || clientId <= 0) {
+        return res.status(403).json({
+          success: false,
+          error: 'Valid client account is required'
+        });
+      }
+
+      const settings = await pool.query(
+        `SELECT phone_number_id, access_token
+         FROM client_whatsapp_settings
+         WHERE client_id = $1
+           AND phone_number_id = $2
+           AND is_active = TRUE
+         LIMIT 1`,
+        [clientId, requestedPhoneNumberId]
+      );
+
+      if (!settings.rows.length) {
+        return res.status(403).json({
+          success: false,
+          error: 'WhatsApp number is not configured for this client'
+        });
+      }
+
+      phoneNumberId = settings.rows[0].phone_number_id;
+      token = settings.rows[0].access_token;
+    }
+
+    if (!token || !phoneNumberId) {
+      return res.status(500).json({
+        success: false,
+        error: 'WhatsApp API is not configured'
+      });
+    }
+
+    const metaResponse = await fetch(
+      `https://graph.facebook.com/v23.0/${phoneNumberId}/block_users`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          block_users: [
+            {
+              user: `+${phoneDigits}`
+            }
+          ]
+        })
+      }
+    );
+
+    const data = await metaResponse.json();
+
+    if (!metaResponse.ok) {
+      return res.status(502).json({
+        success: false,
+        error: data.error?.message || 'Meta block request failed'
+      });
+    }
+
+    const blockResult = data.block_users || {};
+
+    if (
+      Array.isArray(blockResult.failed_users) &&
+      blockResult.failed_users.length > 0
+    ) {
+      return res.status(502).json({
+        success: false,
+        error: 'Meta could not block this contact'
+      });
+    }
+
+    if (
+      !Array.isArray(blockResult.added_users) ||
+      blockResult.added_users.length === 0
+    ) {
+      return res.status(502).json({
+        success: false,
+        error: 'Meta did not confirm the block'
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Contact blocked successfully'
+    });
+  } catch (err) {
+    console.error('WhatsApp block user error:', err);
+
+    return res.status(500).json({
+      success: false,
+      error: 'Could not block this contact'
+    });
+  }
+});
 /* DASHBOARD */
 app.get('/', requireLogin, async function(req, res) {
   try {
