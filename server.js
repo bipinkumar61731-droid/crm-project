@@ -5363,9 +5363,10 @@ if (!phoneNumberId) {
       );
 
       console.log('WhatsApp delivery status updated', {
-        whatsappMessageId,
-        deliveryStatus
-      });
+  whatsappMessageId,
+  deliveryStatus,
+  errorDetails
+});
     }
     for (const msg of messages) {
 
