@@ -7172,17 +7172,25 @@ if (!to || !file) {
       'audio/m4a'
     ].includes(incomingMimeType) || incomingFileName.endsWith('.m4a');
 
+    const isMp3Audio = incomingMimeType === 'audio/mpeg';
+
     let uploadBuffer = file.buffer;
     let uploadMimeType = isMp4Audio ? 'audio/mp4' : incomingMimeType;
-    let uploadFileName = isMp4Audio ? 'recorded-audio.m4a' : file.originalname;
+
+    let uploadFileName = isMp4Audio
+      ? 'recorded-audio.m4a'
+      : isMp3Audio
+        ? 'recorded-audio.mp3'
+        : file.originalname;
 
     console.log('WhatsApp incoming media check', {
       originalMimeType: file.mimetype,
       originalFileName: file.originalname,
-      isMp4Audio
+      isMp4Audio,
+      isMp3Audio
     });
 
-    if (incomingMimeType.startsWith('audio/') && !isMp4Audio) {
+    if (incomingMimeType.startsWith('audio/') && !isMp4Audio && !isMp3Audio) {
       const converted = await new Promise((resolve, reject) => {
         const ffmpegProcess = spawn(ffmpegPath, [
           '-hide_banner',
