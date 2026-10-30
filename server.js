@@ -144,18 +144,20 @@ const whatsappUpload = multer({
     fileSize: 16 * 1024 * 1024
   },
   fileFilter: function (req, file, cb) {
-    const allowedTypes = [
-  'image/jpeg',
-  'image/png',
-  'audio/aac',
-  'audio/mp4',
-  'audio/mpeg',
-  'audio/amr',
-  'audio/ogg',
-  'audio/webm',
-  'audio/webm;codecs=opus',
-  'audio/ogg;codecs=opus'
-];
+       const allowedTypes = [
+      'image/jpeg',
+      'image/png',
+      'audio/aac',
+      'audio/mp4',
+      'audio/x-m4a',
+      'audio/m4a',
+      'audio/mpeg',
+      'audio/amr',
+      'audio/ogg',
+      'audio/webm',
+      'audio/webm;codecs=opus',
+      'audio/ogg;codecs=opus'
+    ];
     if (allowedTypes.includes(file.mimetype)) {
       return cb(null, true);
     }
@@ -7161,12 +7163,26 @@ if (!to || !file) {
   });
 }
 
-let uploadBuffer = file.buffer;
-    let uploadMimeType = file.mimetype;
-    let uploadFileName = file.mimetype === 'audio/mp4'
-  ? 'recorded-audio.m4a'
-  : file.originalname;
-    if (file.mimetype.startsWith('audio/') && file.mimetype !== 'audio/mp4') {
+    const incomingMimeType = String(file.mimetype || '').toLowerCase();
+    const incomingFileName = String(file.originalname || '').toLowerCase();
+
+    const isMp4Audio = [
+      'audio/mp4',
+      'audio/x-m4a',
+      'audio/m4a'
+    ].includes(incomingMimeType) || incomingFileName.endsWith('.m4a');
+
+    let uploadBuffer = file.buffer;
+    let uploadMimeType = isMp4Audio ? 'audio/mp4' : incomingMimeType;
+    let uploadFileName = isMp4Audio ? 'recorded-audio.m4a' : file.originalname;
+
+    console.log('WhatsApp incoming media check', {
+      originalMimeType: file.mimetype,
+      originalFileName: file.originalname,
+      isMp4Audio
+    });
+
+    if (incomingMimeType.startsWith('audio/') && !isMp4Audio) {
       const converted = await new Promise((resolve, reject) => {
         const ffmpegProcess = spawn(ffmpegPath, [
           '-hide_banner',
