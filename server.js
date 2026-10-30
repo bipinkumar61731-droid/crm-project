@@ -7163,9 +7163,10 @@ if (!to || !file) {
 
 let uploadBuffer = file.buffer;
     let uploadMimeType = file.mimetype;
-    let uploadFileName = file.originalname;
-
-    if (file.mimetype.startsWith('audio/')) {
+    let uploadFileName = file.mimetype === 'audio/mp4'
+  ? 'recorded-audio.m4a'
+  : file.originalname;
+    if (file.mimetype.startsWith('audio/') && file.mimetype !== 'audio/mp4') {
       const converted = await new Promise((resolve, reject) => {
         const ffmpegProcess = spawn(ffmpegPath, [
           '-hide_banner',
