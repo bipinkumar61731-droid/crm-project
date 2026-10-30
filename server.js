@@ -7171,6 +7171,7 @@ let uploadBuffer = file.buffer;
           '-loglevel', 'error',
           '-i', 'pipe:0',
           '-vn',
+'-ac', '1',
           '-c:a', 'libopus',
           '-b:a', '64k',
           '-f', 'ogg',
