@@ -6967,6 +6967,20 @@ if (isAdmin) {
   }
 }
 
+
+    // Mark incoming messages in this exact Android conversation as read.
+    await pool.query(
+      `
+        UPDATE whatsapp_messages
+        SET is_read = true
+        WHERE phone = $1
+          AND phone_number_id = $2
+          AND direction = 'incoming'
+          AND client_id IS NOT DISTINCT FROM $3::integer
+          AND is_read = false
+      `,
+      [phone, phoneNumberId, conversationClientId]
+    );
 const query = `
   SELECT
     id,
