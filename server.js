@@ -7172,7 +7172,8 @@ let uploadBuffer = file.buffer;
           '-loglevel', 'error',
           '-i', 'pipe:0',
           '-vn',
-'-ac', '1',
+          '-af', 'asetpts=N/SR/TB',
+          '-ac', '1',
           '-c:a', 'libopus',
           '-b:a', '64k',
           '-f', 'ogg',
@@ -7201,17 +7202,21 @@ let uploadBuffer = file.buffer;
       });
 
       uploadBuffer = converted;
-     uploadMimeType = 'audio/ogg; codecs=opus';
+      uploadMimeType = 'audio/ogg; codecs=opus';
       uploadFileName = 'recorded-audio.ogg';
+
+      console.log('WhatsApp audio conversion check', {
+        uploadBytes: uploadBuffer.length,
+        fileSignature: uploadBuffer.subarray(0, 4).toString('ascii'),
+        fileSignatureHex: uploadBuffer.subarray(0, 16).toString('hex'),
+        uploadMimeType
+      });
     }
+const isAdmin = req.session.user.role === 'admin';
+const clientId = req.session.user.client_id;
 
-
-    const isAdmin = req.session.user.role === 'admin';
-    const clientId = req.session.user.client_id;
-
-    let token;
-    let phoneNumberId;
-
+let token;
+let phoneNumberId;
     if (isAdmin) {
       token = process.env.WHATSAPP_ACCESS_TOKEN;
       phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
