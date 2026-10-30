@@ -7166,13 +7166,20 @@ if (!to || !file) {
     const incomingMimeType = String(file.mimetype || '').toLowerCase();
     const incomingFileName = String(file.originalname || '').toLowerCase();
 
+    const fileHeader = file.buffer.subarray(0, 12);
+    const isMp4Container =
+      fileHeader.subarray(4, 8).toString('ascii') === 'ftyp';
+
     const isMp4Audio = [
       'audio/mp4',
       'audio/x-m4a',
       'audio/m4a'
-    ].includes(incomingMimeType) || incomingFileName.endsWith('.m4a');
+    ].includes(incomingMimeType) ||
+      incomingFileName.endsWith('.m4a') ||
+      isMp4Container;
 
-    const isMp3Audio = incomingMimeType === 'audio/mpeg';
+    const isMp3Audio =
+      incomingMimeType === 'audio/mpeg' && !isMp4Container;
 
     let uploadBuffer = file.buffer;
     let uploadMimeType = isMp4Audio ? 'audio/mp4' : incomingMimeType;
@@ -7186,8 +7193,11 @@ if (!to || !file) {
     console.log('WhatsApp incoming media check', {
       originalMimeType: file.mimetype,
       originalFileName: file.originalname,
+      isMp4Container,
       isMp4Audio,
-      isMp3Audio
+      isMp3Audio,
+      fileHeaderHex: fileHeader.toString('hex'),
+      fileHeaderAscii: fileHeader.toString('ascii')
     });
 
     if (incomingMimeType.startsWith('audio/') && !isMp4Audio && !isMp3Audio) {
