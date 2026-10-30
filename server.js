@@ -7199,7 +7199,7 @@ let uploadBuffer = file.buffer;
       });
 
       uploadBuffer = converted;
-      uploadMimeType = 'audio/ogg';
+     uploadMimeType = 'audio/ogg; codecs=opus';
       uploadFileName = 'recorded-audio.ogg';
     }
 
