@@ -7211,6 +7211,8 @@ let uploadBuffer = file.buffer;
         uploadBytes: uploadBuffer.length,
         fileSignature: uploadBuffer.subarray(0, 4).toString('ascii'),
         fileSignatureHex: uploadBuffer.subarray(0, 16).toString('hex'),
+        opusHeadIndex: uploadBuffer.indexOf(Buffer.from('OpusHead')),
+        opusTagsIndex: uploadBuffer.indexOf(Buffer.from('OpusTags')),
         uploadMimeType
       });
     }
