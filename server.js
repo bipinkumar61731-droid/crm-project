@@ -7174,8 +7174,10 @@ let uploadBuffer = file.buffer;
           '-vn',
           '-af', 'asetpts=N/SR/TB',
           '-ac', '1',
+          '-ar', '48000',
           '-c:a', 'libopus',
           '-b:a', '64k',
+          '-application', 'voip',
           '-f', 'ogg',
           'pipe:1'
         ], {
